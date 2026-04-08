@@ -1,4 +1,4 @@
-# app.py - Complete Temple Management System with All Features
+# app.py - Complete Temple Management System with Amman Image Upload & Colorful UI
 import streamlit as st
 import pandas as pd
 from datetime import datetime, date, timedelta
@@ -78,17 +78,9 @@ RELATION_TYPES = [
 # UTILITY FUNCTIONS
 # ============================================================
 def format_date_ddmmyyyy(date_obj):
-    """Convert date to DD/MM/YYYY format"""
     if date_obj:
         return date_obj.strftime('%d/%m/%Y')
     return ""
-
-def parse_date_ddmmyyyy(date_str):
-    """Parse DD/MM/YYYY string to date object"""
-    try:
-        return datetime.strptime(date_str, '%d/%m/%Y').date()
-    except:
-        return None
 
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
@@ -135,6 +127,67 @@ def set_temple_setting(key: str, value: str):
             supabase.table('temple_settings').insert({'key': key, 'value': value}).execute()
     except:
         pass
+
+def get_amman_image():
+    """Get Amman image from settings or return default SVG"""
+    img = get_temple_setting('amman_image')
+    if img and img.startswith('data:image'):
+        return img
+    # Default animated Amman SVG with rays
+    default_svg = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300" width="200" height="200">
+    <defs>
+        <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" style="stop-color:#fff8f0;stop-opacity:1"/>
+            <stop offset="60%" style="stop-color:#ffe0b2;stop-opacity:1"/>
+            <stop offset="100%" style="stop-color:#ffcc80;stop-opacity:1"/>
+        </radialGradient>
+        <style>
+            @keyframes rayRotate { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+            @keyframes rayRotateRev { 0% { transform: rotate(360deg); } 100% { transform: rotate(0deg); } }
+            @keyframes pulse { 0%,100% { opacity: 0.7; } 50% { opacity: 1; } }
+        </style>
+    </defs>
+    <circle cx="150" cy="150" r="148" fill="url(#glow)" stroke="#ff6b35" stroke-width="4"/>
+    <g opacity="0.4">
+        <line x1="150" y1="10" x2="150" y2="40" stroke="#ffaa00" stroke-width="3">
+            <animateTransform attributeName="transform" type="rotate" from="0 150 150" to="360 150 150" dur="20s" repeatCount="indefinite"/>
+        </line>
+        <line x1="150" y1="260" x2="150" y2="290" stroke="#ffaa00" stroke-width="3">
+            <animateTransform attributeName="transform" type="rotate" from="0 150 150" to="360 150 150" dur="20s" repeatCount="indefinite"/>
+        </line>
+        <line x1="10" y1="150" x2="40" y2="150" stroke="#ffaa00" stroke-width="3">
+            <animateTransform attributeName="transform" type="rotate" from="0 150 150" to="360 150 150" dur="20s" repeatCount="indefinite"/>
+        </line>
+        <line x1="260" y1="150" x2="290" y2="150" stroke="#ffaa00" stroke-width="3">
+            <animateTransform attributeName="transform" type="rotate" from="0 150 150" to="360 150 150" dur="20s" repeatCount="indefinite"/>
+        </line>
+        <line x1="50" y1="50" x2="70" y2="70" stroke="#ffaa00" stroke-width="2">
+            <animateTransform attributeName="transform" type="rotate" from="0 150 150" to="360 150 150" dur="25s" repeatCount="indefinite"/>
+        </line>
+        <line x1="230" y1="230" x2="250" y2="250" stroke="#ffaa00" stroke-width="2">
+            <animateTransform attributeName="transform" type="rotate" from="0 150 150" to="360 150 150" dur="25s" repeatCount="indefinite"/>
+        </line>
+        <line x1="50" y1="250" x2="70" y2="230" stroke="#ffaa00" stroke-width="2">
+            <animateTransform attributeName="transform" type="rotate" from="0 150 150" to="360 150 150" dur="25s" repeatCount="indefinite"/>
+        </line>
+        <line x1="230" y1="70" x2="250" y2="50" stroke="#ffaa00" stroke-width="2">
+            <animateTransform attributeName="transform" type="rotate" from="0 150 150" to="360 150 150" dur="25s" repeatCount="indefinite"/>
+        </line>
+    </g>
+    <circle cx="150" cy="150" r="100" fill="#fff4e6" stroke="#ff8c42" stroke-width="3"/>
+    <circle cx="150" cy="150" r="95" fill="none" stroke="#ffaa44" stroke-width="1" stroke-dasharray="5,5">
+        <animateTransform attributeName="transform" type="rotate" from="0 150 150" to="360 150 150" dur="10s" repeatCount="indefinite"/>
+    </circle>
+    <text x="150" y="100" text-anchor="middle" font-size="14" fill="#c62828" font-weight="bold">Om Amman</text>
+    <text x="150" y="135" text-anchor="middle" font-size="52">🙏</text>
+    <text x="150" y="170" text-anchor="middle" font-size="40">🪷</text>
+    <text x="150" y="210" text-anchor="middle" font-size="11" fill="#8B0000" font-weight="bold">Arulmigu Bhadreshwari</text>
+    <text x="150" y="225" text-anchor="middle" font-size="11" fill="#8B0000" font-weight="bold">Amman Kovil</text>
+    </svg>"""
+    return "data:image/svg+xml;base64," + base64.b64encode(default_svg.encode()).decode()
+
+def set_amman_image(base64_img):
+    set_temple_setting('amman_image', base64_img)
 
 def get_todays_birthdays():
     if not supabase: return []
@@ -259,7 +312,7 @@ def generate_bill_pdf(bill_no, manual_bill, bill_book, bill_date, name, address,
     return bytes(pdf.output())
 
 # ============================================================
-# BEAUTIFUL LOGIN PAGE WITH AMMAN IMAGE & ANIMATED RAYS
+# BEAUTIFUL LOGIN PAGE WITH AMMAN IMAGE (UPLOADED OR DEFAULT)
 # ============================================================
 def login_page():
     if not supabase:
@@ -267,60 +320,7 @@ def login_page():
         return
     create_default_admin()
     
-    # Default Amman SVG with rays animation
-    amman_svg = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300" width="200" height="200">
-    <defs>
-        <radialGradient id="glow" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" style="stop-color:#fff8f0;stop-opacity:1"/>
-            <stop offset="60%" style="stop-color:#ffe0b2;stop-opacity:1"/>
-            <stop offset="100%" style="stop-color:#ffcc80;stop-opacity:1"/>
-        </radialGradient>
-        <style>
-            @keyframes rayRotate { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-            @keyframes rayRotateRev { 0% { transform: rotate(360deg); } 100% { transform: rotate(0deg); } }
-            @keyframes pulse { 0%,100% { opacity: 0.7; } 50% { opacity: 1; } }
-        </style>
-    </defs>
-    <circle cx="150" cy="150" r="148" fill="url(#glow)" stroke="#ff6b35" stroke-width="4"/>
-    <!-- Rays -->
-    <g opacity="0.4">
-        <line x1="150" y1="10" x2="150" y2="40" stroke="#ffaa00" stroke-width="3">
-            <animateTransform attributeName="transform" type="rotate" from="0 150 150" to="360 150 150" dur="20s" repeatCount="indefinite"/>
-        </line>
-        <line x1="150" y1="260" x2="150" y2="290" stroke="#ffaa00" stroke-width="3">
-            <animateTransform attributeName="transform" type="rotate" from="0 150 150" to="360 150 150" dur="20s" repeatCount="indefinite"/>
-        </line>
-        <line x1="10" y1="150" x2="40" y2="150" stroke="#ffaa00" stroke-width="3">
-            <animateTransform attributeName="transform" type="rotate" from="0 150 150" to="360 150 150" dur="20s" repeatCount="indefinite"/>
-        </line>
-        <line x1="260" y1="150" x2="290" y2="150" stroke="#ffaa00" stroke-width="3">
-            <animateTransform attributeName="transform" type="rotate" from="0 150 150" to="360 150 150" dur="20s" repeatCount="indefinite"/>
-        </line>
-        <line x1="50" y1="50" x2="70" y2="70" stroke="#ffaa00" stroke-width="2">
-            <animateTransform attributeName="transform" type="rotate" from="0 150 150" to="360 150 150" dur="25s" repeatCount="indefinite"/>
-        </line>
-        <line x1="230" y1="230" x2="250" y2="250" stroke="#ffaa00" stroke-width="2">
-            <animateTransform attributeName="transform" type="rotate" from="0 150 150" to="360 150 150" dur="25s" repeatCount="indefinite"/>
-        </line>
-        <line x1="50" y1="250" x2="70" y2="230" stroke="#ffaa00" stroke-width="2">
-            <animateTransform attributeName="transform" type="rotate" from="0 150 150" to="360 150 150" dur="25s" repeatCount="indefinite"/>
-        </line>
-        <line x1="230" y1="70" x2="250" y2="50" stroke="#ffaa00" stroke-width="2">
-            <animateTransform attributeName="transform" type="rotate" from="0 150 150" to="360 150 150" dur="25s" repeatCount="indefinite"/>
-        </line>
-    </g>
-    <circle cx="150" cy="150" r="100" fill="#fff4e6" stroke="#ff8c42" stroke-width="3"/>
-    <circle cx="150" cy="150" r="95" fill="none" stroke="#ffaa44" stroke-width="1" stroke-dasharray="5,5">
-        <animateTransform attributeName="transform" type="rotate" from="0 150 150" to="360 150 150" dur="10s" repeatCount="indefinite"/>
-    </circle>
-    <text x="150" y="100" text-anchor="middle" font-size="14" fill="#c62828" font-weight="bold">Om Amman</text>
-    <text x="150" y="135" text-anchor="middle" font-size="52">🙏</text>
-    <text x="150" y="170" text-anchor="middle" font-size="40">🪷</text>
-    <text x="150" y="210" text-anchor="middle" font-size="11" fill="#8B0000" font-weight="bold">Arulmigu Bhadreshwari</text>
-    <text x="150" y="225" text-anchor="middle" font-size="11" fill="#8B0000" font-weight="bold">Amman Kovil</text>
-    </svg>"""
-    
-    amman_base64 = "data:image/svg+xml;base64," + base64.b64encode(amman_svg.encode()).decode()
+    amman_img = get_amman_image()
     
     st.markdown("""
     <style>
@@ -331,7 +331,7 @@ def login_page():
     }
     .login-container {
         max-width: 480px;
-        margin: 80px auto;
+        margin: 60px auto;
         padding: 40px 35px;
         background: rgba(255,255,255,0.12);
         backdrop-filter: blur(15px);
@@ -409,7 +409,7 @@ def login_page():
         st.markdown('<div class="login-container">', unsafe_allow_html=True)
         st.markdown(f'''
         <div class="amman-circle">
-            <img src="{amman_base64}" class="amman-img">
+            <img src="{amman_img}" class="amman-img">
         </div>
         <div class="temple-name">🛕 {TEMPLE_NAME}</div>
         <div class="temple-trust">{TEMPLE_TRUST}</div>
@@ -444,28 +444,65 @@ def login_page():
         st.markdown('</div>', unsafe_allow_html=True)
 
 # ============================================================
-# HEADER & SIDEBAR
+# COLORFUL HEADER & SIDEBAR
 # ============================================================
 def render_header():
+    amman_img = get_amman_image()
     st.markdown(f"""
-    <div style='text-align:center; padding:20px; background:linear-gradient(135deg,#667eea 0%,#764ba2 100%); border-radius:15px; margin-bottom:20px;'>
-        <h1 style='color:white; margin:0;'>🛕 {TEMPLE_NAME}</h1>
-        <p style='color:#f0f0f0; margin:5px 0;'>{TEMPLE_TRUST}</p>
-        <p style='color:#e0e0e0; margin:5px 0;'>📍 {TEMPLE_ADDRESS} | 📞 {TEMPLE_PHONE} | ✉ {TEMPLE_EMAIL}</p>
-        <p style='color:#ffd700; font-style:italic;'>{TEMPLE_TAMIL}</p>
+    <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 30%, #f093fb 60%, #f5576c 100%); padding: 20px; border-radius: 15px; margin-bottom: 20px; position: relative;'>
+        <div style='position: absolute; left: 20px; top: 50%; transform: translateY(-50%);'>
+            <img src="{amman_img}" style='width: 60px; height: 60px; border-radius: 50%; border: 3px solid #ffd700; box-shadow: 0 0 20px rgba(255,215,0,0.5);'>
+        </div>
+        <div style='text-align: center;'>
+            <h1 style='color: white; margin: 0; text-shadow: 2px 2px 4px rgba(0,0,0,0.3);'>🛕 {TEMPLE_NAME}</h1>
+            <p style='color: #fff8e7; margin: 5px 0; font-weight: 500;'>{TEMPLE_TRUST}</p>
+            <p style='color: #fff0d0; margin: 5px 0;'>📍 {TEMPLE_ADDRESS} | 📞 {TEMPLE_PHONE} | ✉ {TEMPLE_EMAIL}</p>
+            <p style='color: #ffd700; font-style: italic; font-weight: 600;'>{TEMPLE_TAMIL}</p>
+        </div>
+        <div style='position: absolute; right: 20px; top: 50%; transform: translateY(-50%);'>
+            <img src="{amman_img}" style='width: 60px; height: 60px; border-radius: 50%; border: 3px solid #ffd700; box-shadow: 0 0 20px rgba(255,215,0,0.5);'>
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
 def render_sidebar():
     with st.sidebar:
-        st.markdown("<div style='text-align:center;'><h2 style='color:#667eea;'>🛕 Temple MS</h2></div>", unsafe_allow_html=True)
-        st.markdown(f"""
-        <div style='background:linear-gradient(135deg,#667eea,#764ba2); padding:15px; border-radius:10px; text-align:center;'>
-            <p style='color:white;'>👤 {st.session_state.get('username','Guest')}</p>
-            <p style='color:#ffd700; font-size:12px;'>{st.session_state.get('role','user')}</p>
+        st.markdown("""
+        <div style='text-align:center; background: linear-gradient(135deg, #667eea, #764ba2); padding: 15px; border-radius: 15px; margin-bottom: 10px;'>
+            <h2 style='color: white; margin: 0;'>🛕 Temple MS</h2>
         </div>
         """, unsafe_allow_html=True)
+        
+        st.markdown(f"""
+        <div style='background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); padding: 12px; border-radius: 10px; text-align: center; margin: 10px 0;'>
+            <p style='color: #1a1a2e; margin: 0; font-weight: bold;'>👤 {st.session_state.get('username','Guest')}</p>
+            <p style='color: #1a1a2e; margin: 5px 0 0 0; font-size: 12px; font-weight: 600;'>{st.session_state.get('role','user')}</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
         st.markdown("---")
+        
+        # Colorful menu buttons
+        menu_style = """
+        <style>
+        div[data-testid="stSidebar"] .stButton > button {
+            background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%);
+            color: #2c3e50;
+            font-weight: 600;
+            border: none;
+            border-radius: 10px;
+            margin: 4px 0;
+            transition: all 0.3s ease;
+        }
+        div[data-testid="stSidebar"] .stButton > button:hover {
+            transform: translateX(5px);
+            background: linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%);
+            color: white;
+        }
+        </style>
+        """
+        st.markdown(menu_style, unsafe_allow_html=True)
+        
         pages = {
             "Dashboard":"🏠","Devotee Management":"👥","Billing System":"🧾",
             "Pooja Management":"🙏","Expense Tracking":"💰","Donations":"🎁",
@@ -477,6 +514,7 @@ def render_sidebar():
             if st.button(f"{icon} {page}", key=page, use_container_width=True):
                 st.session_state.current_page = page
                 st.rerun()
+        
         st.markdown("---")
         if st.button("🚪 Logout", use_container_width=True):
             for k in ['logged_in','username','role','user_id','current_page']:
@@ -497,18 +535,39 @@ def dashboard_page():
     elif period=="This Month": s=today.replace(day=1); e=today
     else: s=today.replace(month=1,day=1); e=today
     summary = get_financial_summary(s,e)
-    c1,c2,c3,c4 = st.columns(4)
-    c1.metric("💰 Income", f"{TEMPLE_CONFIG['currency']}{summary['income']:,.2f}")
-    c2.metric("💸 Expenses", f"{TEMPLE_CONFIG['currency']}{summary['expenses']:,.2f}")
-    c3.metric("🎁 Donations", f"{TEMPLE_CONFIG['currency']}{summary['donations']:,.2f}")
-    c4.metric("💎 Balance", f"{TEMPLE_CONFIG['currency']}{summary['balance']:,.2f}")
+    
+    # Colorful metric cards
+    st.markdown("""
+    <style>
+    .metric-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 15px;
+        border-radius: 15px;
+        text-align: center;
+        color: white;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.markdown(f'<div class="metric-card"><h3>💰 Income</h3><h2>{TEMPLE_CONFIG["currency"]}{summary["income"]:,.2f}</h2></div>', unsafe_allow_html=True)
+    with c2:
+        st.markdown(f'<div class="metric-card"><h3>💸 Expenses</h3><h2>{TEMPLE_CONFIG["currency"]}{summary["expenses"]:,.2f}</h2></div>', unsafe_allow_html=True)
+    with c3:
+        st.markdown(f'<div class="metric-card"><h3>🎁 Donations</h3><h2>{TEMPLE_CONFIG["currency"]}{summary["donations"]:,.2f}</h2></div>', unsafe_allow_html=True)
+    with c4:
+        st.markdown(f'<div class="metric-card"><h3>💎 Balance</h3><h2>{TEMPLE_CONFIG["currency"]}{summary["balance"]:,.2f}</h2></div>', unsafe_allow_html=True)
+    
     st.markdown("---")
     # News ticker
     try:
         news = supabase.table('news_ticker').select('message').eq('is_active',True).order('priority', desc=True).execute()
         if news.data:
-            st.markdown(f"<marquee style='background:#f0f0f0; padding:10px; border-radius:10px;'>{' | '.join([n['message'] for n in news.data])}</marquee>", unsafe_allow_html=True)
+            st.markdown(f"<div style='background: linear-gradient(90deg, #ffecd2 0%, #fcb69f 100%); padding: 12px; border-radius: 10px;'><marquee behavior='scroll' direction='left'>{' | '.join([n['message'] for n in news.data])}</marquee></div>", unsafe_allow_html=True)
     except: pass
+    
     colA, colB = st.columns(2)
     with colA:
         st.subheader("🎂 Today's Birthdays")
@@ -566,14 +625,12 @@ def devotee_management_page():
                     st.balloons()
     
     with tab2:
-        # Select devotee to add family members
         devotees = supabase.table('devotees').select('id,name,mobile_no').execute()
         if devotees.data:
             dev_opt = {f"{d['name']} - {d.get('mobile_no','')}": d['id'] for d in devotees.data}
             selected = st.selectbox("Select Devotee (Head)", list(dev_opt.keys()))
             dev_id = dev_opt[selected]
             
-            # Display existing family members
             family = supabase.table('family_members').select('*').eq('devotee_id', dev_id).execute()
             if family.data:
                 st.write("**Existing Family Members:**")
@@ -584,7 +641,6 @@ def devotee_management_page():
                         supabase.table('family_members').delete().eq('id', fm['id']).execute()
                         st.rerun()
             
-            # Add family member
             with st.form("add_family"):
                 st.subheader("Add Family Member")
                 col1, col2 = st.columns(2)
@@ -661,7 +717,7 @@ def devotee_management_page():
                 st.success(f"Imported {success} devotees")
 
 # ============================================================
-# BILLING SYSTEM (with search by name/mobile/address, WhatsApp, PDF, Delete)
+# BILLING SYSTEM (with search, WhatsApp, PDF, Delete)
 # ============================================================
 def billing_page():
     render_header()
@@ -725,7 +781,7 @@ def billing_page():
                 st.error("Invalid amount")
             else:
                 bill_no = generate_unique_id('BILL')
-                bill_date_str = bill_date.strftime('%d/%m/%Y')
+                bill_date_str = format_date_ddmmyyyy(bill_date)
                 data = {
                     'bill_no': bill_no, 'manual_bill_no': manual_bill, 'bill_book_no': book_no,
                     'devotee_type': 'registered' if dev_type=="Registered" else 'guest',
@@ -757,7 +813,6 @@ def billing_page():
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # Download & WhatsApp buttons
                 colA, colB = st.columns(2)
                 with colA:
                     if PDF_AVAILABLE:
@@ -789,7 +844,6 @@ def billing_page():
                         if st.button("🗑️ Delete", key=f"del_bill_{bill['id']}"):
                             supabase.table('bills').delete().eq('id', bill['id']).execute()
                             st.rerun()
-                    # Regenerate PDF and WhatsApp if needed
                     if PDF_AVAILABLE:
                         pdf = generate_bill_pdf(bill['bill_no'], bill.get('manual_bill_no',''), bill.get('bill_book_no',''), 
                                                format_date_ddmmyyyy(datetime.strptime(bill['bill_date'], '%Y-%m-%d').date()) if bill['bill_date'] else '',
@@ -1147,7 +1201,7 @@ def assets_page():
             st.info("No assets")
 
 # ============================================================
-# REPORTS (with specific fields)
+# REPORTS
 # ============================================================
 def reports_page():
     render_header()
@@ -1161,7 +1215,6 @@ def reports_page():
         if bills.data:
             data = []
             for b in bills.data:
-                # Get devotee name
                 name = b.get('guest_name')
                 address = b.get('guest_address')
                 mobile = b.get('guest_mobile')
@@ -1188,14 +1241,13 @@ def reports_page():
             st.download_button("📥 Download Report", csv, "income_report.csv")
         else:
             st.info("No bills found")
-    
     elif report_type == "Financial Summary":
         summary = get_financial_summary(from_date, to_date)
-        st.metric("Income", f"{TEMPLE_CONFIG['currency']}{summary['income']:,.2f}")
-        st.metric("Expenses", f"{TEMPLE_CONFIG['currency']}{summary['expenses']:,.2f}")
-        st.metric("Donations", f"{TEMPLE_CONFIG['currency']}{summary['donations']:,.2f}")
-        st.metric("Balance", f"{TEMPLE_CONFIG['currency']}{summary['balance']:,.2f}")
-    
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Income", f"{TEMPLE_CONFIG['currency']}{summary['income']:,.2f}")
+        col2.metric("Expenses", f"{TEMPLE_CONFIG['currency']}{summary['expenses']:,.2f}")
+        col3.metric("Donations", f"{TEMPLE_CONFIG['currency']}{summary['donations']:,.2f}")
+        col4.metric("Balance", f"{TEMPLE_CONFIG['currency']}{summary['balance']:,.2f}")
     elif report_type == "Devotee Report":
         devs = supabase.table('devotees').select('devotee_id,name,mobile_no,email,created_at').execute()
         if devs.data:
@@ -1203,7 +1255,6 @@ def reports_page():
             st.dataframe(df)
             csv = df.to_csv(index=False).encode()
             st.download_button("📥 Download", csv, "devotees.csv")
-    
     elif report_type == "Pooja Income":
         bills = supabase.table('bills').select('pooja_type,amount').gte('bill_date',from_date.isoformat()).lte('bill_date',to_date.isoformat()).execute()
         if bills.data:
@@ -1211,7 +1262,6 @@ def reports_page():
             summary = df.groupby('pooja_type')['amount'].sum().reset_index()
             summary['amount'] = summary['amount'].apply(lambda x: f"{TEMPLE_CONFIG['currency']}{x:,.2f}")
             st.dataframe(summary)
-    
     elif report_type == "Expense Report":
         exps = supabase.table('expenses').select('expense_type,amount').gte('expense_date',from_date.isoformat()).lte('expense_date',to_date.isoformat()).execute()
         if exps.data:
@@ -1219,7 +1269,6 @@ def reports_page():
             summary = df.groupby('expense_type')['amount'].sum().reset_index()
             summary['amount'] = summary['amount'].apply(lambda x: f"{TEMPLE_CONFIG['currency']}{x:,.2f}")
             st.dataframe(summary)
-    
     elif report_type == "Donation Report":
         don = supabase.table('donations').select('donation_type,amount').gte('donation_date',from_date.isoformat()).lte('donation_date',to_date.isoformat()).execute()
         if don.data:
@@ -1229,11 +1278,12 @@ def reports_page():
             st.dataframe(summary)
 
 # ============================================================
-# SETTINGS
+# SETTINGS (with Amman Image Upload)
 # ============================================================
 def settings_page():
     render_header()
-    tab1, tab2, tab3, tab4 = st.tabs(["🏛️ Temple Info","📢 News Ticker","💸 Expense Types","👤 Profile"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏛️ Temple Info","🖼️ Amman Image","📢 News Ticker","💸 Expense Types","👤 Profile"])
+    
     with tab1:
         with st.form("temple_info"):
             name = st.text_input("Temple Name", TEMPLE_CONFIG['name'])
@@ -1242,14 +1292,29 @@ def settings_page():
             phone = st.text_input("Phone", TEMPLE_CONFIG['phone'])
             email = st.text_input("Email", TEMPLE_CONFIG['email'])
             tagline = st.text_input("Tagline", TEMPLE_CONFIG['tagline'])
-            logo = st.file_uploader("Logo", type=['jpg','png'])
             if st.form_submit_button("Save"):
                 TEMPLE_CONFIG.update({'name':name,'trust':trust,'address':addr,'phone':phone,'email':email,'tagline':tagline})
-                if logo:
-                    set_temple_setting('temple_logo', base64.b64encode(logo.getvalue()).decode())
                 st.success("Saved")
                 st.rerun()
+    
     with tab2:
+        st.subheader("Upload Amman Image for Login Page & Banner")
+        current_img = get_amman_image()
+        st.markdown(f'<div style="text-align:center;"><img src="{current_img}" style="width:150px; height:150px; border-radius:50%; border:3px solid gold;"></div>', unsafe_allow_html=True)
+        uploaded_img = st.file_uploader("Choose Amman Image (JPG/PNG)", type=['jpg','jpeg','png'])
+        if uploaded_img:
+            img_b64 = "data:image/jpeg;base64," + base64.b64encode(uploaded_img.getvalue()).decode()
+            st.markdown(f'<div style="text-align:center;"><img src="{img_b64}" style="width:120px; border-radius:50%;"></div>', unsafe_allow_html=True)
+            if st.button("Save Amman Image"):
+                set_amman_image(img_b64)
+                st.success("Amman image updated! Refresh to see changes.")
+                st.rerun()
+        if st.button("Reset to Default Animated Amman"):
+            set_amman_image("")
+            st.success("Reset to default. Refresh page.")
+            st.rerun()
+    
+    with tab3:
         with st.form("add_news"):
             msg = st.text_input("News Message")
             prio = st.slider("Priority",0,10,0)
@@ -1268,7 +1333,8 @@ def settings_page():
                 if c3.button("🗑️", key=f"del_news_{n['id']}"):
                     supabase.table('news_ticker').delete().eq('id',n['id']).execute()
                     st.rerun()
-    with tab3:
+    
+    with tab4:
         with st.form("add_exp_type"):
             exp_name = st.text_input("Expense Type Name")
             cat = st.selectbox("Category", ["Utilities","Maintenance","Daily Operations","Staff","Events","Other"])
@@ -1284,7 +1350,8 @@ def settings_page():
                 if c2.button("Delete", key=f"del_exp_{e['id']}"):
                     supabase.table('expense_types').delete().eq('id',e['id']).execute()
                     st.rerun()
-    with tab4:
+    
+    with tab5:
         user = supabase.table('users').select('*').eq('username',st.session_state.username).execute()
         if user.data:
             u = user.data[0]
