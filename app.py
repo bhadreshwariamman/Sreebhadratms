@@ -1,4 +1,4 @@
-# app.py - Complete Temple Management System with Supabase
+# app.py - Complete Temple Management System with All Features
 import streamlit as st
 import pandas as pd
 from datetime import datetime, date, timedelta
@@ -6,14 +6,17 @@ import uuid
 import base64
 import time
 import hashlib
+import io
+import urllib.parse
 from typing import Optional, Dict, List, Any
 from supabase import create_client, Client
+import json
 
 # ============================================================
 # PAGE CONFIG
 # ============================================================
 st.set_page_config(
-    page_title="🛕 Temple Management System",
+    page_title="🛕 Arulmigu Bhadreshwari Amman Temple",
     page_icon="🛕",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -35,26 +38,33 @@ def init_supabase():
 supabase = init_supabase()
 
 # ============================================================
-# CONSTANTS & CONFIG
+# TEMPLE CONSTANTS
 # ============================================================
+TEMPLE_NAME = "Arulmigu Bhadreshwari Amman Temple"
+TEMPLE_TRUST = "Samrakshana Seva Trust 179/2004"
+TEMPLE_ADDRESS = "Kanjampuram, Kanniyakumari Dist. - 629154"
+TEMPLE_EMAIL = "bhadreshwariamman@gmail.com"
+TEMPLE_PHONE = "+91 9876543210"
+TEMPLE_TAMIL = "அம்மே நாராயணா ..தேவி நாராயணா"
+
 TEMPLE_CONFIG = {
-    "name": "Sri Bhadreshwari Amman Temple",
-    "trust": "Sri Bhadreshwari Charitable Trust",
-    "address": "Temple Street, Devotional City - 123456",
-    "phone": "+91 9876543210",
-    "email": "temple@example.com",
-    "website": "www.templeexample.com",
-    "tagline": "Om Namah Shivaya",
+    "name": TEMPLE_NAME,
+    "trust": TEMPLE_TRUST,
+    "address": TEMPLE_ADDRESS,
+    "phone": TEMPLE_PHONE,
+    "email": TEMPLE_EMAIL,
+    "tagline": TEMPLE_TAMIL,
     "currency": "₹"
 }
 
-NATCHATHIRAM_LIST = [
-    "Ashwini", "Bharani", "Karthigai", "Rohini", "Mrigashirsha",
-    "Thiruvadirai", "Punarvasu", "Pushya", "Ashlesha", "Magha",
-    "Purva Phalguni", "Uttara Phalguni", "Hasta", "Chitra", "Swati",
-    "Vishakha", "Anuradha", "Jyeshtha", "Mula", "Purva Ashadha",
-    "Uttara Ashadha", "Shravana", "Dhanishta", "Shatabhisha",
-    "Purva Bhadrapada", "Uttara Bhadrapada", "Revati"
+# Tamil Natchathiram names
+NATCHATHIRAM_TAMIL = [
+    "அஸ்வினி", "பரணி", "கார்த்திகை", "ரோகிணி", "மிருகசீரிஷம்",
+    "திருவாதிரை", "புனர்பூசம்", "பூசம்", "ஆயில்யம்", "மகம்",
+    "பூரம்", "உத்திரம்", "ஹஸ்தம்", "சித்திரை", "சுவாதி",
+    "விசாகம்", "அனுஷம்", "கேட்டை", "மூலம்", "பூராடம்",
+    "உத்திராடம்", "திருவோணம்", "அவிட்டம்", "சதயம்",
+    "பூரட்டாதி", "உத்திரட்டாதி", "ரேவதி"
 ]
 
 RELATION_TYPES = [
@@ -67,6 +77,19 @@ RELATION_TYPES = [
 # ============================================================
 # UTILITY FUNCTIONS
 # ============================================================
+def format_date_ddmmyyyy(date_obj):
+    """Convert date to DD/MM/YYYY format"""
+    if date_obj:
+        return date_obj.strftime('%d/%m/%Y')
+    return ""
+
+def parse_date_ddmmyyyy(date_str):
+    """Parse DD/MM/YYYY string to date object"""
+    try:
+        return datetime.strptime(date_str, '%d/%m/%Y').date()
+    except:
+        return None
+
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
 
@@ -92,7 +115,7 @@ def create_default_admin():
             }
             supabase.table('users').insert(admin_data).execute()
     except Exception as e:
-        st.error(f"Admin creation error: {e}")
+        pass
 
 def get_temple_setting(key: str) -> str:
     if not supabase: return ''
@@ -158,23 +181,280 @@ def get_financial_summary(start_date, end_date):
     except:
         return {'income':0,'expenses':0,'donations':0,'balance':0}
 
+def make_whatsapp_link(phone, message):
+    phone_clean = ''.join(filter(str.isdigit, str(phone)))
+    if len(phone_clean) == 10:
+        phone_clean = "91" + phone_clean
+    return f"https://wa.me/{phone_clean}?text={urllib.parse.quote(message)}"
+
+def build_bill_whatsapp_message(bill_no, bill_date, name, pooja, amount, manual_bill="", book_no=""):
+    return (
+        f"🛕 *{TEMPLE_NAME}*\n"
+        f"*{TEMPLE_TRUST}*\n"
+        f"📍 {TEMPLE_ADDRESS}\n"
+        f"🙏 {TEMPLE_TAMIL}\n\n"
+        f"📋 *BILL / RECEIPT*\n"
+        f"━━━━━━━━━━━━━━━━━\n"
+        f"📄 Bill No: {bill_no}\n"
+        f"{'📝 Manual: ' + str(manual_bill) + chr(10) if manual_bill else ''}"
+        f"{'📖 Book: ' + str(book_no) + chr(10) if book_no else ''}"
+        f"📅 Date: {bill_date}\n"
+        f"━━━━━━━━━━━━━━━━━\n"
+        f"👤 Name: {name}\n"
+        f"🙏 Pooja: {pooja}\n"
+        f"💰 *Amount: ₹ {float(amount):,.2f}*\n"
+        f"━━━━━━━━━━━━━━━━━\n\n"
+        f"🙏 Thank you for your contribution!\n"
+        f"May Goddess Bhadreshwari bless you!\n\n"
+        f"✉ {TEMPLE_EMAIL}\n"
+        f"🪔 {TEMPLE_TAMIL} 🪔"
+    )
+
 # ============================================================
-# UI COMPONENTS
+# PDF GENERATION
+# ============================================================
+PDF_AVAILABLE = False
+try:
+    from fpdf import FPDF
+    PDF_AVAILABLE = True
+except:
+    pass
+
+def generate_bill_pdf(bill_no, manual_bill, bill_book, bill_date, name, address, mobile, pooja_type, amount):
+    if not PDF_AVAILABLE:
+        return None
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font('Helvetica', 'B', 16)
+    pdf.cell(0, 10, TEMPLE_NAME, 0, 1, 'C')
+    pdf.set_font('Helvetica', '', 10)
+    pdf.cell(0, 6, TEMPLE_TRUST, 0, 1, 'C')
+    pdf.cell(0, 6, TEMPLE_ADDRESS, 0, 1, 'C')
+    pdf.cell(0, 6, f"Email: {TEMPLE_EMAIL}", 0, 1, 'C')
+    pdf.ln(5)
+    pdf.set_font('Helvetica', 'B', 12)
+    pdf.cell(0, 8, "BILL / RECEIPT", 0, 1, 'C')
+    pdf.ln(5)
+    pdf.set_font('Helvetica', '', 10)
+    pdf.cell(50, 8, f"Bill No: {bill_no}", 0, 0)
+    pdf.cell(0, 8, f"Date: {bill_date}", 0, 1)
+    if manual_bill:
+        pdf.cell(50, 8, f"Manual Bill: {manual_bill}", 0, 0)
+    if bill_book:
+        pdf.cell(0, 8, f"Book No: {bill_book}", 0, 1)
+    pdf.ln(5)
+    pdf.cell(50, 8, f"Name: {name}", 0, 1)
+    if address:
+        pdf.cell(50, 8, f"Address: {address}", 0, 1)
+    if mobile:
+        pdf.cell(50, 8, f"Mobile: {mobile}", 0, 1)
+    pdf.ln(5)
+    pdf.cell(50, 8, f"Pooja Type: {pooja_type}", 0, 1)
+    pdf.set_font('Helvetica', 'B', 12)
+    pdf.cell(50, 10, f"Amount: ₹ {amount:,.2f}", 0, 1)
+    pdf.ln(10)
+    pdf.set_font('Helvetica', 'I', 8)
+    pdf.cell(0, 6, "Thank you for your contribution! May Goddess Bhadreshwari bless you!", 0, 1, 'C')
+    pdf.cell(0, 6, TEMPLE_TAMIL, 0, 1, 'C')
+    return bytes(pdf.output())
+
+# ============================================================
+# BEAUTIFUL LOGIN PAGE WITH AMMAN IMAGE & ANIMATED RAYS
+# ============================================================
+def login_page():
+    if not supabase:
+        st.error("⚠️ Database connection failed. Check Supabase secrets.")
+        return
+    create_default_admin()
+    
+    # Default Amman SVG with rays animation
+    amman_svg = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300" width="200" height="200">
+    <defs>
+        <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" style="stop-color:#fff8f0;stop-opacity:1"/>
+            <stop offset="60%" style="stop-color:#ffe0b2;stop-opacity:1"/>
+            <stop offset="100%" style="stop-color:#ffcc80;stop-opacity:1"/>
+        </radialGradient>
+        <style>
+            @keyframes rayRotate { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+            @keyframes rayRotateRev { 0% { transform: rotate(360deg); } 100% { transform: rotate(0deg); } }
+            @keyframes pulse { 0%,100% { opacity: 0.7; } 50% { opacity: 1; } }
+        </style>
+    </defs>
+    <circle cx="150" cy="150" r="148" fill="url(#glow)" stroke="#ff6b35" stroke-width="4"/>
+    <!-- Rays -->
+    <g opacity="0.4">
+        <line x1="150" y1="10" x2="150" y2="40" stroke="#ffaa00" stroke-width="3">
+            <animateTransform attributeName="transform" type="rotate" from="0 150 150" to="360 150 150" dur="20s" repeatCount="indefinite"/>
+        </line>
+        <line x1="150" y1="260" x2="150" y2="290" stroke="#ffaa00" stroke-width="3">
+            <animateTransform attributeName="transform" type="rotate" from="0 150 150" to="360 150 150" dur="20s" repeatCount="indefinite"/>
+        </line>
+        <line x1="10" y1="150" x2="40" y2="150" stroke="#ffaa00" stroke-width="3">
+            <animateTransform attributeName="transform" type="rotate" from="0 150 150" to="360 150 150" dur="20s" repeatCount="indefinite"/>
+        </line>
+        <line x1="260" y1="150" x2="290" y2="150" stroke="#ffaa00" stroke-width="3">
+            <animateTransform attributeName="transform" type="rotate" from="0 150 150" to="360 150 150" dur="20s" repeatCount="indefinite"/>
+        </line>
+        <line x1="50" y1="50" x2="70" y2="70" stroke="#ffaa00" stroke-width="2">
+            <animateTransform attributeName="transform" type="rotate" from="0 150 150" to="360 150 150" dur="25s" repeatCount="indefinite"/>
+        </line>
+        <line x1="230" y1="230" x2="250" y2="250" stroke="#ffaa00" stroke-width="2">
+            <animateTransform attributeName="transform" type="rotate" from="0 150 150" to="360 150 150" dur="25s" repeatCount="indefinite"/>
+        </line>
+        <line x1="50" y1="250" x2="70" y2="230" stroke="#ffaa00" stroke-width="2">
+            <animateTransform attributeName="transform" type="rotate" from="0 150 150" to="360 150 150" dur="25s" repeatCount="indefinite"/>
+        </line>
+        <line x1="230" y1="70" x2="250" y2="50" stroke="#ffaa00" stroke-width="2">
+            <animateTransform attributeName="transform" type="rotate" from="0 150 150" to="360 150 150" dur="25s" repeatCount="indefinite"/>
+        </line>
+    </g>
+    <circle cx="150" cy="150" r="100" fill="#fff4e6" stroke="#ff8c42" stroke-width="3"/>
+    <circle cx="150" cy="150" r="95" fill="none" stroke="#ffaa44" stroke-width="1" stroke-dasharray="5,5">
+        <animateTransform attributeName="transform" type="rotate" from="0 150 150" to="360 150 150" dur="10s" repeatCount="indefinite"/>
+    </circle>
+    <text x="150" y="100" text-anchor="middle" font-size="14" fill="#c62828" font-weight="bold">Om Amman</text>
+    <text x="150" y="135" text-anchor="middle" font-size="52">🙏</text>
+    <text x="150" y="170" text-anchor="middle" font-size="40">🪷</text>
+    <text x="150" y="210" text-anchor="middle" font-size="11" fill="#8B0000" font-weight="bold">Arulmigu Bhadreshwari</text>
+    <text x="150" y="225" text-anchor="middle" font-size="11" fill="#8B0000" font-weight="bold">Amman Kovil</text>
+    </svg>"""
+    
+    amman_base64 = "data:image/svg+xml;base64," + base64.b64encode(amman_svg.encode()).decode()
+    
+    st.markdown("""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
+    * { font-family: 'Poppins', sans-serif; }
+    .stApp {
+        background: linear-gradient(135deg, #0f0c29 0%, #1a1a3e 30%, #302b63 60%, #4a1942 100%);
+    }
+    .login-container {
+        max-width: 480px;
+        margin: 80px auto;
+        padding: 40px 35px;
+        background: rgba(255,255,255,0.12);
+        backdrop-filter: blur(15px);
+        border-radius: 30px;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.4), 0 0 40px rgba(255,107,53,0.2);
+        border: 1px solid rgba(255,255,255,0.18);
+        text-align: center;
+        animation: float 6s ease-in-out infinite;
+    }
+    @keyframes float {
+        0%,100% { transform: translateY(0px); }
+        50% { transform: translateY(-8px); }
+    }
+    .amman-circle {
+        position: relative;
+        display: inline-block;
+        margin-bottom: 15px;
+    }
+    .amman-img {
+        width: 160px;
+        height: 160px;
+        border-radius: 50%;
+        object-fit: cover;
+        border: 4px solid #ffd700;
+        box-shadow: 0 0 30px rgba(255,215,0,0.5);
+        animation: glow 3s ease-in-out infinite;
+    }
+    @keyframes glow {
+        0%,100% { box-shadow: 0 0 20px rgba(255,215,0,0.4); }
+        50% { box-shadow: 0 0 50px rgba(255,215,0,0.8); }
+    }
+    .temple-name {
+        color: #ffd700;
+        font-size: 1.5em;
+        font-weight: 700;
+        margin: 10px 0 5px;
+        text-shadow: 0 2px 10px rgba(0,0,0,0.3);
+    }
+    .temple-trust {
+        color: #ffaa66;
+        font-size: 0.9em;
+        margin: 5px 0;
+    }
+    .temple-address {
+        color: #ddd;
+        font-size: 0.8em;
+        margin: 5px 0;
+    }
+    .temple-email {
+        color: #90caf9;
+        font-size: 0.75em;
+        margin: 5px 0;
+    }
+    .tamil-text {
+        color: #ffd966;
+        font-size: 1em;
+        font-weight: 600;
+        margin: 15px 0 10px;
+        animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+        0%,100% { opacity: 0.7; }
+        50% { opacity: 1; }
+    }
+    .login-divider {
+        height: 2px;
+        background: linear-gradient(90deg, transparent, #ffd700, #ff6b35, #ffd700, transparent);
+        margin: 20px 0;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([1,2,1])
+    with col2:
+        st.markdown('<div class="login-container">', unsafe_allow_html=True)
+        st.markdown(f'''
+        <div class="amman-circle">
+            <img src="{amman_base64}" class="amman-img">
+        </div>
+        <div class="temple-name">🛕 {TEMPLE_NAME}</div>
+        <div class="temple-trust">{TEMPLE_TRUST}</div>
+        <div class="temple-address">📍 {TEMPLE_ADDRESS}</div>
+        <div class="temple-email">✉ {TEMPLE_EMAIL} | 📞 {TEMPLE_PHONE}</div>
+        <div class="tamil-text">🙏 {TEMPLE_TAMIL} 🙏</div>
+        <div class="login-divider"></div>
+        ''', unsafe_allow_html=True)
+        
+        with st.form("login_form"):
+            username = st.text_input("👤 Username", placeholder="Enter username")
+            password = st.text_input("🔑 Password", type="password", placeholder="Enter password")
+            if st.form_submit_button("🚀 Enter Temple Portal", use_container_width=True):
+                if username and password:
+                    try:
+                        res = supabase.table('users').select('*').eq('username', username).execute()
+                        if res.data and verify_password(password, res.data[0]['password_hash']):
+                            st.session_state.logged_in = True
+                            st.session_state.username = res.data[0]['username']
+                            st.session_state.role = res.data[0]['role']
+                            st.session_state.user_id = res.data[0]['id']
+                            st.session_state.current_page = "Dashboard"
+                            st.success("Login successful!")
+                            time.sleep(0.5)
+                            st.rerun()
+                        else:
+                            st.error("❌ Invalid credentials")
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+        st.markdown('<div class="login-divider"></div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="text-align:center; color:#aaa; font-size:0.7em;">🔑 Default: admin / admin123<br>🪔 {TEMPLE_TAMIL} 🪔</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+# ============================================================
+# HEADER & SIDEBAR
 # ============================================================
 def render_header():
-    logo = get_temple_setting('temple_logo')
-    col1, col2, col3 = st.columns([1,3,1])
-    with col2:
-        if logo:
-            st.image(logo, width=100)
-        st.markdown(f"""
-        <div style='text-align:center; padding:20px; background:linear-gradient(135deg,#667eea 0%,#764ba2 100%); border-radius:10px; margin-bottom:20px;'>
-            <h1 style='color:white; margin:0;'>🛕 {TEMPLE_CONFIG['name']}</h1>
-            <p style='color:#f0f0f0;'>{TEMPLE_CONFIG['trust']}</p>
-            <p style='color:#e0e0e0;'>📍 {TEMPLE_CONFIG['address']} | 📞 {TEMPLE_CONFIG['phone']} | ✉ {TEMPLE_CONFIG['email']}</p>
-            <p style='color:#ffd700; font-style:italic;'>{TEMPLE_CONFIG['tagline']}</p>
-        </div>
-        """, unsafe_allow_html=True)
+    st.markdown(f"""
+    <div style='text-align:center; padding:20px; background:linear-gradient(135deg,#667eea 0%,#764ba2 100%); border-radius:15px; margin-bottom:20px;'>
+        <h1 style='color:white; margin:0;'>🛕 {TEMPLE_NAME}</h1>
+        <p style='color:#f0f0f0; margin:5px 0;'>{TEMPLE_TRUST}</p>
+        <p style='color:#e0e0e0; margin:5px 0;'>📍 {TEMPLE_ADDRESS} | 📞 {TEMPLE_PHONE} | ✉ {TEMPLE_EMAIL}</p>
+        <p style='color:#ffd700; font-style:italic;'>{TEMPLE_TAMIL}</p>
+    </div>
+    """, unsafe_allow_html=True)
 
 def render_sidebar():
     with st.sidebar:
@@ -189,6 +469,7 @@ def render_sidebar():
         pages = {
             "Dashboard":"🏠","Devotee Management":"👥","Billing System":"🧾",
             "Pooja Management":"🙏","Expense Tracking":"💰","Donations":"🎁",
+            "Samaya Vakuppu":"📚","Thirumana Mandapam":"💒",
             "Asset Management":"🏷️","Reports":"📊","Settings":"⚙️","User Management":"👥"
         }
         for page, icon in pages.items():
@@ -203,46 +484,7 @@ def render_sidebar():
             st.rerun()
 
 # ============================================================
-# LOGIN PAGE
-# ============================================================
-def login_page():
-    if not supabase:
-        st.error("⚠️ Database connection failed. Check Supabase secrets.")
-        return
-    create_default_admin()
-    st.markdown("""
-    <style>.login-container{max-width:400px; margin:100px auto; padding:40px; background:white; border-radius:20px; box-shadow:0 10px 40px rgba(0,0,0,0.1);}</style>
-    """, unsafe_allow_html=True)
-    with st.container():
-        col1, col2, col3 = st.columns([1,2,1])
-        with col2:
-            st.markdown('<div class="login-container">', unsafe_allow_html=True)
-            st.markdown("<h2 style='text-align:center;'>🛕 Temple Management System</h2>", unsafe_allow_html=True)
-            with st.form("login_form"):
-                username = st.text_input("Username")
-                password = st.text_input("Password", type="password")
-                if st.form_submit_button("Login", use_container_width=True):
-                    if username and password:
-                        try:
-                            res = supabase.table('users').select('*').eq('username', username).execute()
-                            if res.data and verify_password(password, res.data[0]['password_hash']):
-                                st.session_state.logged_in = True
-                                st.session_state.username = res.data[0]['username']
-                                st.session_state.role = res.data[0]['role']
-                                st.session_state.user_id = res.data[0]['id']
-                                st.session_state.current_page = "Dashboard"
-                                st.success("Login successful!")
-                                time.sleep(0.5)
-                                st.rerun()
-                            else:
-                                st.error("Invalid credentials")
-                        except Exception as e:
-                            st.error(f"Error: {e}")
-            st.info("🔑 Default: admin / admin123")
-            st.markdown('</div>', unsafe_allow_html=True)
-
-# ============================================================
-# DASHBOARD PAGE
+# DASHBOARD
 # ============================================================
 def dashboard_page():
     render_header()
@@ -262,12 +504,11 @@ def dashboard_page():
     c4.metric("💎 Balance", f"{TEMPLE_CONFIG['currency']}{summary['balance']:,.2f}")
     st.markdown("---")
     # News ticker
-    if supabase:
-        try:
-            news = supabase.table('news_ticker').select('message').eq('is_active',True).order('priority', desc=True).execute()
-            if news.data:
-                st.markdown(f"<marquee style='background:#f0f0f0; padding:10px; border-radius:10px;'>{' | '.join([n['message'] for n in news.data])}</marquee>", unsafe_allow_html=True)
-        except: pass
+    try:
+        news = supabase.table('news_ticker').select('message').eq('is_active',True).order('priority', desc=True).execute()
+        if news.data:
+            st.markdown(f"<marquee style='background:#f0f0f0; padding:10px; border-radius:10px;'>{' | '.join([n['message'] for n in news.data])}</marquee>", unsafe_allow_html=True)
+    except: pass
     colA, colB = st.columns(2)
     with colA:
         st.subheader("🎂 Today's Birthdays")
@@ -286,11 +527,12 @@ def dashboard_page():
         except: pass
 
 # ============================================================
-# DEVOTEE MANAGEMENT (FULL)
+# DEVOTEE MANAGEMENT (with Tamil Natchathiram & Family Members)
 # ============================================================
 def devotee_management_page():
     render_header()
-    tab1, tab2, tab3 = st.tabs(["➕ Register","📋 View","📤 Bulk Import"])
+    tab1, tab2, tab3, tab4 = st.tabs(["➕ Register","👨‍👩‍👧 Family Members","📋 View All","📤 Bulk Import"])
+    
     with tab1:
         with st.form("reg_devotee"):
             col1, col2 = st.columns(2)
@@ -299,10 +541,11 @@ def devotee_management_page():
                 dob = st.date_input("DOB", value=date(1980,1,1))
                 gender = st.selectbox("Gender", ["Male","Female","Other"])
                 mobile = st.text_input("Mobile")
+                whatsapp = st.text_input("WhatsApp No")
                 email = st.text_input("Email")
             with col2:
                 address = st.text_area("Address")
-                natchathiram = st.selectbox("Natchathiram", ["--"]+NATCHATHIRAM_LIST)
+                natchathiram = st.selectbox("Natchathiram (Star)", ["--"] + NATCHATHIRAM_TAMIL)
                 wedding = st.date_input("Wedding Day", value=None)
                 occupation = st.text_input("Occupation")
                 gothram = st.text_input("Gothram")
@@ -313,7 +556,7 @@ def devotee_management_page():
                     photo_b64 = base64.b64encode(photo.getvalue()).decode() if photo else None
                     data = {
                         'devotee_id': dev_id, 'name': name, 'dob': dob.isoformat(), 'gender': gender,
-                        'mobile_no': mobile, 'email': email, 'address': address,
+                        'mobile_no': mobile, 'whatsapp_no': whatsapp, 'email': email, 'address': address,
                         'natchathiram': natchathiram if natchathiram!="--" else None,
                         'wedding_day': wedding.isoformat() if wedding else None,
                         'occupation': occupation, 'gothram': gothram, 'photo_url': photo_b64
@@ -321,11 +564,54 @@ def devotee_management_page():
                     supabase.table('devotees').insert(data).execute()
                     st.success(f"✅ {name} registered! ID: {dev_id}")
                     st.balloons()
+    
     with tab2:
-        search = st.text_input("🔍 Search by name/mobile")
+        # Select devotee to add family members
+        devotees = supabase.table('devotees').select('id,name,mobile_no').execute()
+        if devotees.data:
+            dev_opt = {f"{d['name']} - {d.get('mobile_no','')}": d['id'] for d in devotees.data}
+            selected = st.selectbox("Select Devotee (Head)", list(dev_opt.keys()))
+            dev_id = dev_opt[selected]
+            
+            # Display existing family members
+            family = supabase.table('family_members').select('*').eq('devotee_id', dev_id).execute()
+            if family.data:
+                st.write("**Existing Family Members:**")
+                for fm in family.data:
+                    col1, col2 = st.columns([3,1])
+                    col1.write(f"👤 {fm['name']} ({fm['relation_type']}) - DOB: {fm.get('dob','')}")
+                    if col2.button("🗑️", key=f"del_fm_{fm['id']}"):
+                        supabase.table('family_members').delete().eq('id', fm['id']).execute()
+                        st.rerun()
+            
+            # Add family member
+            with st.form("add_family"):
+                st.subheader("Add Family Member")
+                col1, col2 = st.columns(2)
+                with col1:
+                    fm_name = st.text_input("Name")
+                    fm_dob = st.date_input("DOB", value=date(2000,1,1))
+                    fm_relation = st.selectbox("Relation", RELATION_TYPES)
+                with col2:
+                    fm_wedding = st.date_input("Wedding Day", value=None)
+                    fm_natchathiram = st.selectbox("Natchathiram", ["--"] + NATCHATHIRAM_TAMIL)
+                if st.form_submit_button("Add Member"):
+                    if fm_name:
+                        supabase.table('family_members').insert({
+                            'devotee_id': dev_id, 'name': fm_name, 'dob': fm_dob.isoformat(),
+                            'relation_type': fm_relation, 'wedding_day': fm_wedding.isoformat() if fm_wedding else None,
+                            'natchathiram': fm_natchathiram if fm_natchathiram!="--" else None
+                        }).execute()
+                        st.success("Family member added")
+                        st.rerun()
+        else:
+            st.warning("No devotees found. Register a devotee first.")
+    
+    with tab3:
+        search = st.text_input("🔍 Search by name/mobile/address")
         query = supabase.table('devotees').select('*').order('created_at', desc=True)
         if search:
-            query = query.or_(f"name.ilike.%{search}%,mobile_no.ilike.%{search}%")
+            query = query.or_(f"name.ilike.%{search}%,mobile_no.ilike.%{search}%,address.ilike.%{search}%")
         res = query.execute()
         devotees = res.data if res.data else []
         st.write(f"**Total: {len(devotees)}**")
@@ -333,21 +619,25 @@ def devotee_management_page():
             with st.expander(f"👤 {d['name']} - {d['devotee_id']}"):
                 col1, col2 = st.columns(2)
                 with col1:
-                    st.write(f"📱 {d.get('mobile_no','N/A')}")
-                    st.write(f"📧 {d.get('email','N/A')}")
-                    st.write(f"🎂 {d.get('dob','N/A')}")
+                    st.write(f"📱 Mobile: {d.get('mobile_no','N/A')}")
+                    st.write(f"📲 WhatsApp: {d.get('whatsapp_no','N/A')}")
+                    st.write(f"📧 Email: {d.get('email','N/A')}")
+                    st.write(f"🎂 DOB: {d.get('dob','N/A')}")
                 with col2:
-                    st.write(f"⭐ {d.get('natchathiram','N/A')}")
-                    st.write(f"💒 {d.get('wedding_day','N/A')}")
-                    st.write(f"🏠 {d.get('address','N/A')}")
+                    st.write(f"⭐ Star: {d.get('natchathiram','N/A')}")
+                    st.write(f"💒 Wedding: {d.get('wedding_day','N/A')}")
+                    st.write(f"🏠 Address: {d.get('address','N/A')}")
                 if d.get('photo_url'):
                     st.image(base64.b64decode(d['photo_url']), width=100)
-                if st.button("🗑️ Delete", key=f"del_{d['id']}"):
+                if st.button("🗑️ Delete", key=f"del_dev_{d['id']}"):
+                    supabase.table('family_members').delete().eq('devotee_id', d['id']).execute()
+                    supabase.table('devotee_yearly_pooja').delete().eq('devotee_id', d['id']).execute()
                     supabase.table('devotees').delete().eq('id', d['id']).execute()
                     st.rerun()
-    with tab3:
+    
+    with tab4:
         st.markdown("Download template, fill, and upload.")
-        template = pd.DataFrame([["Sample","1980-01-01","Male","9876543210","email@ex.com","Address","Ashwini","2005-05-10","Business","Vishwamitra"]],
+        template = pd.DataFrame([["Sample","1980-01-01","Male","9876543210","email@ex.com","Address","அஸ்வினி","2005-05-10","Business","Vishwamitra"]],
                                 columns=["Name","DOB","Gender","Mobile","Email","Address","Natchathiram","WeddingDay","Occupation","Gothram"])
         csv = template.to_csv(index=False).encode()
         st.download_button("📥 Template", csv, "devotee_template.csv")
@@ -371,11 +661,12 @@ def devotee_management_page():
                 st.success(f"Imported {success} devotees")
 
 # ============================================================
-# BILLING SYSTEM (FULL)
+# BILLING SYSTEM (with search by name/mobile/address, WhatsApp, PDF, Delete)
 # ============================================================
 def billing_page():
     render_header()
-    tab1, tab2 = st.tabs(["🧾 New Bill", "📋 History"])
+    tab1, tab2 = st.tabs(["🧾 New Bill", "📋 Bill History"])
+    
     with tab1:
         col1, col2 = st.columns(2)
         with col1:
@@ -391,23 +682,42 @@ def billing_page():
         with col2:
             dev_type = st.radio("Devotee Type", ["Registered","Guest"])
             if dev_type == "Registered":
-                search = st.text_input("Search devotee")
-                if search:
-                    res = supabase.table('devotees').select('id,name,mobile_no,address').or_(f"name.ilike.%{search}%,mobile_no.ilike.%{search}%").limit(10).execute()
-                    if res.data:
-                        selected = st.selectbox("Select", [f"{d['name']} - {d['mobile_no']}" for d in res.data])
-                        dev_id = next(d['id'] for d in res.data if f"{d['name']} - {d['mobile_no']}"==selected)
-                        dev = next(d for d in res.data if d['id']==dev_id)
-                        st.write(f"**Name:** {dev['name']}\n**Mobile:** {dev.get('mobile_no','')}\n**Address:** {dev.get('address','')}")
+                st.markdown("### Search Devotee")
+                search_by = st.selectbox("Search by", ["Name","Mobile No","Address"])
+                search_term = st.text_input(f"Enter {search_by}")
+                devotee_id = None
+                dev_name = ""
+                dev_mobile = ""
+                dev_address = ""
+                if search_term:
+                    query = supabase.table('devotees').select('id,name,mobile_no,address')
+                    if search_by == "Name":
+                        query = query.ilike('name', f'%{search_term}%')
+                    elif search_by == "Mobile No":
+                        query = query.ilike('mobile_no', f'%{search_term}%')
                     else:
-                        dev_id = None
-                else:
-                    dev_id = None
+                        query = query.ilike('address', f'%{search_term}%')
+                    res = query.limit(10).execute()
+                    if res.data:
+                        dev_opts = {f"{d['name']} - {d.get('mobile_no','')}": d for d in res.data}
+                        selected = st.selectbox("Select Devotee", list(dev_opts.keys()))
+                        dev = dev_opts[selected]
+                        devotee_id = dev['id']
+                        dev_name = dev['name']
+                        dev_mobile = dev.get('mobile_no','')
+                        dev_address = dev.get('address','')
+                        st.success(f"Selected: {dev_name}")
+                    else:
+                        st.warning("No devotees found")
             else:
-                dev_id = None
+                devotee_id = None
                 guest_name = st.text_input("Guest Name *")
                 guest_mobile = st.text_input("Mobile")
                 guest_address = st.text_area("Address")
+                dev_name = guest_name
+                dev_mobile = guest_mobile
+                dev_address = guest_address
+        
         if st.button("Generate Bill", type="primary"):
             if dev_type=="Guest" and not guest_name:
                 st.error("Enter guest name")
@@ -415,10 +725,11 @@ def billing_page():
                 st.error("Invalid amount")
             else:
                 bill_no = generate_unique_id('BILL')
+                bill_date_str = bill_date.strftime('%d/%m/%Y')
                 data = {
                     'bill_no': bill_no, 'manual_bill_no': manual_bill, 'bill_book_no': book_no,
                     'devotee_type': 'registered' if dev_type=="Registered" else 'guest',
-                    'devotee_id': dev_id if dev_type=="Registered" else None,
+                    'devotee_id': devotee_id if dev_type=="Registered" else None,
                     'guest_name': guest_name if dev_type=="Guest" else None,
                     'guest_mobile': guest_mobile if dev_type=="Guest" else None,
                     'guest_address': guest_address if dev_type=="Guest" else None,
@@ -428,35 +739,69 @@ def billing_page():
                 supabase.table('bills').insert(data).execute()
                 st.success(f"Bill generated: {bill_no}")
                 st.balloons()
-                # Receipt display
+                
+                # Display receipt
                 st.markdown(f"""
-                <div style='border:2px solid #667eea; padding:20px; border-radius:10px; background:white;'>
-                    <h3 style='text-align:center'>{TEMPLE_CONFIG['name']}</h3>
-                    <p style='text-align:center'>{TEMPLE_CONFIG['trust']}<br>{TEMPLE_CONFIG['address']}</p>
-                    <hr><h4 style='text-align:center'>RECEIPT</h4><hr>
+                <div style='border:2px solid #667eea; padding:20px; border-radius:10px; background:white; margin:10px 0;'>
+                    <h3 style='text-align:center'>{TEMPLE_NAME}</h3>
+                    <p style='text-align:center'>{TEMPLE_TRUST}<br>{TEMPLE_ADDRESS}<br>✉ {TEMPLE_EMAIL}</p>
+                    <hr><h4 style='text-align:center'>BILL / RECEIPT</h4><hr>
                     <p><strong>Bill No:</strong> {bill_no}<br>
-                    <strong>Date:</strong> {bill_date}<br>
-                    <strong>Devotee:</strong> {guest_name if dev_type=='Guest' else dev['name'] if dev_id else 'N/A'}<br>
+                    <strong>Date:</strong> {bill_date_str}<br>
+                    <strong>Name:</strong> {dev_name}<br>
+                    <strong>Address:</strong> {dev_address}<br>
+                    <strong>Mobile:</strong> {dev_mobile}<br>
                     <strong>Pooja:</strong> {pooja}<br>
                     <strong>Amount:</strong> {TEMPLE_CONFIG['currency']}{amount:,.2f}</p>
-                    <hr><p style='text-align:center'>🙏 Thank you! 🙏</p>
+                    <hr><p style='text-align:center'>🙏 Thank you! {TEMPLE_TAMIL} 🙏</p>
                 </div>
                 """, unsafe_allow_html=True)
+                
+                # Download & WhatsApp buttons
+                colA, colB = st.columns(2)
+                with colA:
+                    if PDF_AVAILABLE:
+                        pdf = generate_bill_pdf(bill_no, manual_bill, book_no, bill_date_str, dev_name, dev_address, dev_mobile, pooja, amount)
+                        if pdf:
+                            st.download_button("📥 Download PDF", data=pdf, file_name=f"Bill_{bill_no}.pdf", mime="application/pdf")
+                with colB:
+                    wa_num = dev_mobile or (guest_mobile if dev_type=="Guest" else "")
+                    if wa_num:
+                        wa_msg = build_bill_whatsapp_message(bill_no, bill_date_str, dev_name, pooja, amount, manual_bill, book_no)
+                        st.markdown(f'<a href="{make_whatsapp_link(wa_num, wa_msg)}" target="_blank" style="display:inline-block; background:#25D366; color:white; padding:8px 20px; border-radius:10px; text-decoration:none;">📲 Send via WhatsApp</a>', unsafe_allow_html=True)
+    
     with tab2:
+        st.subheader("Bill History with Delete Option")
         from_date = st.date_input("From", date.today()-timedelta(30))
         to_date = st.date_input("To", date.today())
         bills = supabase.table('bills').select('*').gte('bill_date',from_date.isoformat()).lte('bill_date',to_date.isoformat()).order('bill_date', desc=True).execute()
         if bills.data:
-            df = pd.DataFrame(bills.data)
-            df['amount_display'] = df['amount'].apply(lambda x: f"{TEMPLE_CONFIG['currency']}{x:,.2f}")
-            st.dataframe(df[['bill_no','bill_date','pooja_type','amount_display','payment_mode']])
-            csv = df.to_csv(index=False).encode()
-            st.download_button("📥 Export CSV", csv, "bills.csv")
+            for bill in bills.data:
+                with st.expander(f"🧾 {bill['bill_no']} - {bill.get('guest_name') or 'Registered'} - ₹{bill['amount']} - {bill['bill_date']}"):
+                    col1, col2 = st.columns([3,1])
+                    with col1:
+                        st.write(f"**Manual Bill:** {bill.get('manual_bill_no','N/A')}")
+                        st.write(f"**Book No:** {bill.get('bill_book_no','N/A')}")
+                        st.write(f"**Pooja:** {bill['pooja_type']}")
+                        st.write(f"**Amount:** ₹{bill['amount']:,.2f}")
+                        st.write(f"**Payment:** {bill.get('payment_mode','cash')}")
+                    with col2:
+                        if st.button("🗑️ Delete", key=f"del_bill_{bill['id']}"):
+                            supabase.table('bills').delete().eq('id', bill['id']).execute()
+                            st.rerun()
+                    # Regenerate PDF and WhatsApp if needed
+                    if PDF_AVAILABLE:
+                        pdf = generate_bill_pdf(bill['bill_no'], bill.get('manual_bill_no',''), bill.get('bill_book_no',''), 
+                                               format_date_ddmmyyyy(datetime.strptime(bill['bill_date'], '%Y-%m-%d').date()) if bill['bill_date'] else '',
+                                               bill.get('guest_name',''), bill.get('guest_address',''), bill.get('guest_mobile',''),
+                                               bill['pooja_type'], bill['amount'])
+                        if pdf:
+                            st.download_button("📥 PDF", pdf, f"Bill_{bill['bill_no']}.pdf", mime="application/pdf", key=f"pdf_{bill['id']}")
         else:
-            st.info("No bills")
+            st.info("No bills found")
 
 # ============================================================
-# POOJA MANAGEMENT (FULL)
+# POOJA MANAGEMENT
 # ============================================================
 def pooja_management_page():
     render_header()
@@ -545,7 +890,7 @@ def pooja_management_page():
             st.warning("No devotees found")
 
 # ============================================================
-# EXPENSE TRACKING (FULL)
+# EXPENSE TRACKING
 # ============================================================
 def expense_page():
     render_header()
@@ -586,7 +931,7 @@ def expense_page():
             st.info("No expenses")
 
 # ============================================================
-# DONATIONS (FULL)
+# DONATIONS
 # ============================================================
 def donations_page():
     render_header()
@@ -629,7 +974,130 @@ def donations_page():
             st.info("No donations")
 
 # ============================================================
-# ASSET MANAGEMENT (FULL)
+# SAMAYA VAKUPPU (Bond Management)
+# ============================================================
+def samaya_vakuppu_page():
+    render_header()
+    st.markdown("## 📚 Samaya Vakuppu - Bond Management")
+    tab1, tab2 = st.tabs(["➕ Register Bond", "📋 Bond List"])
+    
+    with tab1:
+        with st.form("samaya_bond"):
+            col1, col2 = st.columns(2)
+            with col1:
+                student_name = st.text_input("Student Name *")
+                father_name = st.text_input("Father's Name *")
+                bond_no = st.text_input("Bond No *")
+            with col2:
+                bond_issue_date = st.date_input("Bond Issue Date", date.today())
+                issued_bank = st.text_input("Issued Bank")
+            address = st.text_area("Address")
+            bond_scan = st.file_uploader("Upload Bond Scan Copy", type=['pdf','jpg','png','jpeg'])
+            student_photo = st.file_uploader("Student Photo", type=['jpg','png','jpeg'])
+            
+            if st.form_submit_button("Register Bond"):
+                if student_name and father_name and bond_no:
+                    bond_id = generate_unique_id('SAM')
+                    bond_scan_b64 = base64.b64encode(bond_scan.getvalue()).decode() if bond_scan else None
+                    photo_b64 = base64.b64encode(student_photo.getvalue()).decode() if student_photo else None
+                    data = {
+                        'bond_id': bond_id, 'student_name': student_name, 'father_name': father_name,
+                        'bond_no': bond_no, 'bond_issue_date': bond_issue_date.isoformat(),
+                        'issued_bank': issued_bank, 'address': address,
+                        'bond_scan_url': bond_scan_b64, 'photo_url': photo_b64
+                    }
+                    supabase.table('samaya_vakuppu').insert(data).execute()
+                    st.success(f"Bond registered! ID: {bond_id}")
+                    st.balloons()
+    
+    with tab2:
+        bonds = supabase.table('samaya_vakuppu').select('*').order('created_at', desc=True).execute()
+        if bonds.data:
+            for b in bonds.data:
+                with st.expander(f"📄 {b['student_name']} - Bond: {b['bond_no']}"):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.write(f"**Father:** {b['father_name']}")
+                        st.write(f"**Issue Date:** {b.get('bond_issue_date','')}")
+                        st.write(f"**Bank:** {b.get('issued_bank','N/A')}")
+                        st.write(f"**Address:** {b.get('address','N/A')}")
+                    with col2:
+                        if b.get('photo_url'):
+                            st.image(base64.b64decode(b['photo_url']), width=120)
+                    if b.get('bond_scan_url'):
+                        st.markdown("**Bond Scan:**")
+                        if 'pdf' in b['bond_scan_url'][:100]:
+                            st.download_button("📥 Download Bond PDF", data=base64.b64decode(b['bond_scan_url']), file_name=f"bond_{b['bond_no']}.pdf", mime="application/pdf", key=f"dl_sam_{b['id']}")
+                        else:
+                            st.image(base64.b64decode(b['bond_scan_url']), width=200)
+                    if st.button("🗑️ Delete", key=f"del_sam_{b['id']}"):
+                        supabase.table('samaya_vakuppu').delete().eq('id', b['id']).execute()
+                        st.rerun()
+        else:
+            st.info("No bonds registered")
+
+# ============================================================
+# THIRUMANA MANDAPAM (Wedding Hall Bond)
+# ============================================================
+def thirumana_mandapam_page():
+    render_header()
+    st.markdown("## 💒 Thirumana Mandapam - Bond Management")
+    tab1, tab2 = st.tabs(["➕ Register Bond", "📋 Bond List"])
+    
+    with tab1:
+        with st.form("thirumana_bond"):
+            col1, col2 = st.columns(2)
+            with col1:
+                name = st.text_input("Name *")
+                bond_no = st.text_input("Bond No *")
+                address = st.text_area("Address")
+            with col2:
+                bond_issue_date = st.date_input("Bond Issue Date", date.today())
+                issued_by = st.text_input("Issued By")
+            bond_scan = st.file_uploader("Upload Bond Scan Copy", type=['pdf','jpg','png','jpeg'])
+            photo = st.file_uploader("Photo", type=['jpg','png','jpeg'])
+            
+            if st.form_submit_button("Register Bond"):
+                if name and bond_no:
+                    bond_id = generate_unique_id('THI')
+                    scan_b64 = base64.b64encode(bond_scan.getvalue()).decode() if bond_scan else None
+                    photo_b64 = base64.b64encode(photo.getvalue()).decode() if photo else None
+                    data = {
+                        'bond_id': bond_id, 'name': name, 'bond_no': bond_no,
+                        'address': address, 'bond_issue_date': bond_issue_date.isoformat(),
+                        'issued_by': issued_by, 'scan_copy_url': scan_b64, 'photo_url': photo_b64
+                    }
+                    supabase.table('thirumana_mandapam').insert(data).execute()
+                    st.success(f"Bond registered! ID: {bond_id}")
+                    st.balloons()
+    
+    with tab2:
+        bonds = supabase.table('thirumana_mandapam').select('*').order('created_at', desc=True).execute()
+        if bonds.data:
+            for b in bonds.data:
+                with st.expander(f"💒 {b['name']} - Bond: {b['bond_no']}"):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.write(f"**Address:** {b.get('address','N/A')}")
+                        st.write(f"**Issue Date:** {b.get('bond_issue_date','')}")
+                        st.write(f"**Issued By:** {b.get('issued_by','N/A')}")
+                    with col2:
+                        if b.get('photo_url'):
+                            st.image(base64.b64decode(b['photo_url']), width=120)
+                    if b.get('scan_copy_url'):
+                        st.markdown("**Bond Scan:**")
+                        if 'pdf' in b['scan_copy_url'][:100]:
+                            st.download_button("📥 Download Bond PDF", data=base64.b64decode(b['scan_copy_url']), file_name=f"bond_{b['bond_no']}.pdf", mime="application/pdf", key=f"dl_thi_{b['id']}")
+                        else:
+                            st.image(base64.b64decode(b['scan_copy_url']), width=200)
+                    if st.button("🗑️ Delete", key=f"del_thi_{b['id']}"):
+                        supabase.table('thirumana_mandapam').delete().eq('id', b['id']).execute()
+                        st.rerun()
+        else:
+            st.info("No bonds registered")
+
+# ============================================================
+# ASSET MANAGEMENT
 # ============================================================
 def assets_page():
     render_header()
@@ -679,19 +1147,55 @@ def assets_page():
             st.info("No assets")
 
 # ============================================================
-# REPORTS (FULL)
+# REPORTS (with specific fields)
 # ============================================================
 def reports_page():
     render_header()
-    report_type = st.selectbox("Report Type", ["Financial Summary","Devotee Report","Pooja Income","Expense Report","Donation Report"])
+    report_type = st.selectbox("Report Type", ["Income Report","Financial Summary","Devotee Report","Pooja Income","Expense Report","Donation Report"])
     from_date = st.date_input("From", date.today()-timedelta(30))
     to_date = st.date_input("To", date.today())
-    if report_type == "Financial Summary":
+    
+    if report_type == "Income Report":
+        st.subheader("Income Report")
+        bills = supabase.table('bills').select('*').gte('bill_date',from_date.isoformat()).lte('bill_date',to_date.isoformat()).execute()
+        if bills.data:
+            data = []
+            for b in bills.data:
+                # Get devotee name
+                name = b.get('guest_name')
+                address = b.get('guest_address')
+                mobile = b.get('guest_mobile')
+                if b.get('devotee_type')=='registered' and b.get('devotee_id'):
+                    dev = supabase.table('devotees').select('name,address,mobile_no').eq('id',b['devotee_id']).execute()
+                    if dev.data:
+                        name = dev.data[0]['name']
+                        address = dev.data[0].get('address','')
+                        mobile = dev.data[0].get('mobile_no','')
+                data.append({
+                    'Name': name or '',
+                    'Address': address or '',
+                    'Manual Bill No': b.get('manual_bill_no',''),
+                    'Book No': b.get('bill_book_no',''),
+                    'Bill No': b['bill_no'],
+                    'Mobile No': mobile or '',
+                    'Amount': b['amount'],
+                    'Pooja Type': b['pooja_type']
+                })
+            df = pd.DataFrame(data)
+            df['Amount'] = df['Amount'].apply(lambda x: f"{TEMPLE_CONFIG['currency']}{x:,.2f}")
+            st.dataframe(df)
+            csv = df.to_csv(index=False).encode()
+            st.download_button("📥 Download Report", csv, "income_report.csv")
+        else:
+            st.info("No bills found")
+    
+    elif report_type == "Financial Summary":
         summary = get_financial_summary(from_date, to_date)
         st.metric("Income", f"{TEMPLE_CONFIG['currency']}{summary['income']:,.2f}")
         st.metric("Expenses", f"{TEMPLE_CONFIG['currency']}{summary['expenses']:,.2f}")
         st.metric("Donations", f"{TEMPLE_CONFIG['currency']}{summary['donations']:,.2f}")
         st.metric("Balance", f"{TEMPLE_CONFIG['currency']}{summary['balance']:,.2f}")
+    
     elif report_type == "Devotee Report":
         devs = supabase.table('devotees').select('devotee_id,name,mobile_no,email,created_at').execute()
         if devs.data:
@@ -699,6 +1203,7 @@ def reports_page():
             st.dataframe(df)
             csv = df.to_csv(index=False).encode()
             st.download_button("📥 Download", csv, "devotees.csv")
+    
     elif report_type == "Pooja Income":
         bills = supabase.table('bills').select('pooja_type,amount').gte('bill_date',from_date.isoformat()).lte('bill_date',to_date.isoformat()).execute()
         if bills.data:
@@ -706,6 +1211,7 @@ def reports_page():
             summary = df.groupby('pooja_type')['amount'].sum().reset_index()
             summary['amount'] = summary['amount'].apply(lambda x: f"{TEMPLE_CONFIG['currency']}{x:,.2f}")
             st.dataframe(summary)
+    
     elif report_type == "Expense Report":
         exps = supabase.table('expenses').select('expense_type,amount').gte('expense_date',from_date.isoformat()).lte('expense_date',to_date.isoformat()).execute()
         if exps.data:
@@ -713,6 +1219,7 @@ def reports_page():
             summary = df.groupby('expense_type')['amount'].sum().reset_index()
             summary['amount'] = summary['amount'].apply(lambda x: f"{TEMPLE_CONFIG['currency']}{x:,.2f}")
             st.dataframe(summary)
+    
     elif report_type == "Donation Report":
         don = supabase.table('donations').select('donation_type,amount').gte('donation_date',from_date.isoformat()).lte('donation_date',to_date.isoformat()).execute()
         if don.data:
@@ -722,7 +1229,7 @@ def reports_page():
             st.dataframe(summary)
 
 # ============================================================
-# SETTINGS (FULL)
+# SETTINGS
 # ============================================================
 def settings_page():
     render_header()
@@ -848,6 +1355,8 @@ def main():
             "Pooja Management": pooja_management_page,
             "Expense Tracking": expense_page,
             "Donations": donations_page,
+            "Samaya Vakuppu": samaya_vakuppu_page,
+            "Thirumana Mandapam": thirumana_mandapam_page,
             "Asset Management": assets_page,
             "Reports": reports_page,
             "Settings": settings_page,
