@@ -306,24 +306,22 @@ def build_bill_whatsapp_message(bill_no, bill_date, name, pooja, amount, manual_
 # ============================================================
 # PDF GENERATION (Centered Amman Image)
 # ============================================================
-PDF_AVAILABLE = False
-try:
-    from fpdf import FPDF
-    PDF_AVAILABLE = True
-except ImportError:
-    pass
-
 def sanitize_text(text):
-    """Replace non-ASCII characters with space to avoid latin-1 encoding errors."""
+    """Convert text to ASCII, replacing non-ASCII chars and ₹ with Rs."""
     if not text:
         return ""
-    return ''.join(c if ord(c) < 128 else ' ' for c in str(text))
+    # Replace rupee symbol with Rs.
+    text = str(text).replace("₹", "Rs.")
+    # Replace other common non-ASCII characters (optional)
+    text = text.replace("–", "-").replace("—", "-").replace("‘", "'").replace("’", "'")
+    # Keep only ASCII characters
+    return ''.join(c if ord(c) < 128 else ' ' for c in text)
 
 def generate_bill_pdf(bill_no, manual_bill, bill_book, bill_date, name, address, mobile, pooja_type, amount, amman_base64=None):
     if not PDF_AVAILABLE:
         return None
     
-    # Sanitize all text inputs
+    # Sanitize all text inputs (including amount as string)
     bill_no = sanitize_text(bill_no)
     manual_bill = sanitize_text(manual_bill)
     bill_book = sanitize_text(bill_book)
@@ -332,6 +330,7 @@ def generate_bill_pdf(bill_no, manual_bill, bill_book, bill_date, name, address,
     address = sanitize_text(address)
     mobile = sanitize_text(mobile)
     pooja_type = sanitize_text(pooja_type)
+    amount_str = sanitize_text(f"{amount:,.2f}")  # format amount without ₹ symbol
     temple_name_safe = sanitize_text(TEMPLE_NAME)
     temple_trust_safe = sanitize_text(TEMPLE_TRUST)
     temple_address_safe = sanitize_text(TEMPLE_ADDRESS)
@@ -386,7 +385,7 @@ def generate_bill_pdf(bill_no, manual_bill, bill_book, bill_date, name, address,
     pdf.ln(5)
     pdf.cell(50, 8, f"Pooja Type: {pooja_type}", 0, 1)
     pdf.set_font('Helvetica', 'B', 12)
-    pdf.cell(50, 10, f"Amount: ₹ {amount:,.2f}", 0, 1)
+    pdf.cell(50, 10, f"Amount: Rs. {amount_str}", 0, 1)   # Changed from ₹ to Rs.
     pdf.ln(10)
     pdf.set_font('Helvetica', 'I', 8)
     pdf.cell(0, 6, "Thank you for your contribution! May Goddess Bhadreshwari bless you!", 0, 1, 'C')
