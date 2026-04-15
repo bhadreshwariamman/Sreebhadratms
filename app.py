@@ -299,7 +299,7 @@ def build_bill_whatsapp_message(bill_no, bill_date, name, pooja, amount, manual_
         f"{'📝 Manual: '+str(manual_bill)+'\n' if manual_bill else ''}"
         f"{'📖 Book: '+str(book_no)+'\n' if book_no else ''}"
         f"📅 Date: {bill_date}\n━━━━━━━━━━━━━━━━━\n👤 Name: {name}\n🙏 Pooja: {pooja}\n"
-        f"💰 *Amount: ₹ {float(amount):,.2f}*\n━━━━━━━━━━━━━━━━━\n\n"
+        f"💰 *Amount: Rs. {float(amount):,.2f}*\n━━━━━━━━━━━━━━━━━\n\n"
         f"🙏 Thank you! May Goddess Bhadreshwari bless you!\n✉ {TEMPLE_EMAIL}\n🪔 {TEMPLE_TAMIL} 🪔"
     )
 
