@@ -304,7 +304,7 @@ def build_bill_whatsapp_message(bill_no, bill_date, name, pooja, amount, manual_
     )
 
 # ============================================================
-# PDF GENERATION (Centered Amman Image)
+# PDF LIBRARY AND HELPER FUNCTIONS
 # ============================================================
 PDF_AVAILABLE = False
 try:
@@ -312,6 +312,50 @@ try:
     PDF_AVAILABLE = True
 except ImportError:
     pass
+
+def sanitize_text(text):
+    """Convert text to ASCII, replacing non-ASCII chars and ₹ with Rs."""
+    if not text:
+        return ""
+    text = str(text).replace("₹", "Rs.")
+    text = text.replace("–", "-").replace("—", "-").replace("‘", "'").replace("’", "'")
+    return ''.join(c if ord(c) < 128 else ' ' for c in text)
+
+def save_base64_image_to_temp(base64_str):
+    """Save base64 image to temporary file and return path."""
+    if not base64_str:
+        return None
+    try:
+        if ',' in base64_str:
+            header, data = base64_str.split(',', 1)
+            if 'png' in header:
+                ext = '.png'
+            elif 'jpeg' in header or 'jpg' in header:
+                ext = '.jpg'
+            elif 'svg' in header:
+                ext = '.svg'
+            else:
+                ext = '.png'
+        else:
+            data = base64_str
+            ext = '.png'
+        img_data = base64.b64decode(data)
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
+        tmp.write(img_data)
+        tmp.close()
+        return tmp.name
+    except:
+        return None
+
+def convert_svg_to_png(svg_path):
+    """Convert SVG to PNG using cairosvg if available."""
+    try:
+        import cairosvg
+        png_path = svg_path.replace('.svg', '.png')
+        cairosvg.svg2png(url=svg_path, write_to=png_path)
+        return png_path
+    except:
+        return None
 
 def generate_bill_pdf(bill_no, manual_bill, bill_book, bill_date, name, address, mobile, pooja_type, amount, amman_base64=None):
     if not PDF_AVAILABLE:
@@ -394,7 +438,7 @@ def generate_bill_pdf(bill_no, manual_bill, bill_book, bill_date, name, address,
         except:
             pass
     
-    # ** FIXED: Return PDF as bytes **
+    # Return PDF as bytes
     return pdf.output(dest='S').encode('latin1')
 # ============================================================
 # LOGIN PAGE
