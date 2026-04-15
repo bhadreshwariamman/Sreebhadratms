@@ -1,5 +1,5 @@
 # app.py - Complete Temple Management System
-# with updated Natchathiram list and DD/MM/YYYY date format
+# with DD/MM/YYYY date format for ALL date inputs and displays
 
 import streamlit as st
 import pandas as pd
@@ -10,6 +10,7 @@ import time
 import hashlib
 import io
 import urllib.parse
+import re
 from typing import Optional, Dict, List, Any
 from supabase import create_client, Client
 import json
@@ -60,7 +61,7 @@ TEMPLE_CONFIG = {
 }
 
 # ============================================================
-# UPDATED NATCHATHIRAM LIST (as requested)
+# NATCHATHIRAM LIST (as requested)
 # ============================================================
 NATCHATHIRAM_LIST = [
     "Aswini", "Bharani", "Krithikai", "Rohini", "Mrigaseersham",
@@ -78,7 +79,7 @@ RELATION_TYPES = [
     "Daughter-in-law", "Uncle", "Aunt", "Nephew", "Niece", "Other"
 ]
 
-# Date range for wedding day (1950-01-01 to 2050-12-31)
+# Date range constants
 MIN_DATE = date(1950, 1, 1)
 MAX_DATE = date(2050, 12, 31)
 
@@ -92,17 +93,53 @@ def format_date_ddmmyyyy(date_obj):
     return ""
 
 def parse_date_ddmmyyyy(date_str):
-    """Parse DD/MM/YYYY string to date object"""
-    try:
-        return datetime.strptime(date_str, '%d/%m/%Y').date()
-    except:
+    """Parse DD/MM/YYYY string to date object, return None if invalid"""
+    if not date_str or date_str.strip() == "":
         return None
+    try:
+        # Try DD/MM/YYYY
+        return datetime.strptime(date_str.strip(), '%d/%m/%Y').date()
+    except:
+        try:
+            # Try YYYY-MM-DD (just in case)
+            return datetime.strptime(date_str.strip(), '%Y-%m-%d').date()
+        except:
+            return None
 
-def format_date_for_db(date_obj):
-    """Convert date object to YYYY-MM-DD for database storage"""
-    if date_obj:
-        return date_obj.isoformat()
+def validate_date_ddmmyyyy(date_str):
+    """Check if string is valid DD/MM/YYYY date within range"""
+    d = parse_date_ddmmyyyy(date_str)
+    if d is None:
+        return False
+    return MIN_DATE <= d <= MAX_DATE
+
+def date_input_ddmmyyyy(label, key=None, value=None, min_date=MIN_DATE, max_date=MAX_DATE, help_text=None):
+    """Custom date input that accepts DD/MM/YYYY format"""
+    if value is None:
+        value = date.today()
+    if isinstance(value, date):
+        value = format_date_ddmmyyyy(value)
+    
+    col1, col2 = st.columns([3,1])
+    with col1:
+        date_str = st.text_input(label, value=value, key=key, help=help_text, placeholder="DD/MM/YYYY")
+    with col2:
+        if st.button("📅", key=f"cal_{key}"):
+            st.session_state[f"temp_date_{key}"] = date.today()
+            # We'll handle calendar popup via session state - but simpler: just instruct user
+            st.info("Enter date in DD/MM/YYYY format")
+    
+    if date_str:
+        if validate_date_ddmmyyyy(date_str):
+            return parse_date_ddmmyyyy(date_str)
+        else:
+            st.error(f"Invalid date. Use DD/MM/YYYY format and date between {format_date_ddmmyyyy(min_date)} and {format_date_ddmmyyyy(max_date)}")
+            return None
     return None
+
+# For backward compatibility, we also keep a function to convert date to DB format
+def date_to_db(date_obj):
+    return date_obj.isoformat() if date_obj else None
 
 # ============================================================
 # BARCODE GENERATION (for assets)
@@ -208,7 +245,7 @@ def get_amman_image():
     img = get_temple_setting('amman_image')
     if img and img.startswith('data:image'):
         return img
-    # Default animated Amman SVG with rays (same as before)
+    # Default animated Amman SVG with rays
     default_svg = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300" width="200" height="200">
     <defs>
         <radialGradient id="glow" cx="50%" cy="50%" r="50%">
@@ -566,17 +603,18 @@ def dashboard_page():
         except: pass
 
 # ============================================================
-# DEVOTEE MANAGEMENT (with updated Natchathiram and DD/MM/YYYY display)
+# DEVOTEE MANAGEMENT (with DD/MM/YYYY date inputs)
 # ============================================================
 def devotee_management_page():
     render_header()
     tab1, tab2, tab3, tab4 = st.tabs(["➕ Register","👨‍👩‍👧 Family Members","📋 View All","📤 Bulk Import"])
+    
     with tab1:
         with st.form("reg_devotee"):
             col1, col2 = st.columns(2)
             with col1:
                 name = st.text_input("Full Name *")
-                dob = st.date_input("DOB", value=date(1980,1,1), min_value=MIN_DATE, max_value=MAX_DATE)
+                dob_str = st.text_input("Date of Birth (DD/MM/YYYY)", value=format_date_ddmmyyyy(date(1980,1,1)), placeholder="DD/MM/YYYY")
                 gender = st.selectbox("Gender", ["Male","Female","Other"])
                 mobile = st.text_input("Mobile")
                 whatsapp = st.text_input("WhatsApp No")
@@ -584,24 +622,34 @@ def devotee_management_page():
             with col2:
                 address = st.text_area("Address")
                 natchathiram = st.selectbox("Natchathiram (Star)", ["--"] + NATCHATHIRAM_LIST)
-                wedding = st.date_input("Wedding Day", value=None, min_value=MIN_DATE, max_value=MAX_DATE)
+                wedding_str = st.text_input("Wedding Day (DD/MM/YYYY)", placeholder="DD/MM/YYYY")
                 occupation = st.text_input("Occupation")
                 gothram = st.text_input("Gothram")
             photo = st.file_uploader("Photo", type=['jpg','png','jpeg'])
             if st.form_submit_button("Register"):
-                if name:
-                    dev_id = generate_unique_id('DEV')
-                    photo_b64 = base64.b64encode(photo.getvalue()).decode() if photo else None
-                    data = {
-                        'devotee_id': dev_id, 'name': name, 'dob': format_date_for_db(dob), 'gender': gender,
-                        'mobile_no': mobile, 'whatsapp_no': whatsapp, 'email': email, 'address': address,
-                        'natchathiram': natchathiram if natchathiram!="--" else None,
-                        'wedding_day': format_date_for_db(wedding) if wedding else None,
-                        'occupation': occupation, 'gothram': gothram, 'photo_url': photo_b64
-                    }
-                    supabase.table('devotees').insert(data).execute()
-                    st.success(f"✅ {name} registered! ID: {dev_id}")
-                    st.balloons()
+                if not name:
+                    st.error("Name is required")
+                else:
+                    dob = parse_date_ddmmyyyy(dob_str) if dob_str else None
+                    wedding = parse_date_ddmmyyyy(wedding_str) if wedding_str else None
+                    if dob_str and not dob:
+                        st.error("Invalid DOB format. Use DD/MM/YYYY")
+                    elif wedding_str and not wedding:
+                        st.error("Invalid Wedding date format. Use DD/MM/YYYY")
+                    else:
+                        dev_id = generate_unique_id('DEV')
+                        photo_b64 = base64.b64encode(photo.getvalue()).decode() if photo else None
+                        data = {
+                            'devotee_id': dev_id, 'name': name, 'dob': date_to_db(dob) if dob else None, 'gender': gender,
+                            'mobile_no': mobile, 'whatsapp_no': whatsapp, 'email': email, 'address': address,
+                            'natchathiram': natchathiram if natchathiram!="--" else None,
+                            'wedding_day': date_to_db(wedding) if wedding else None,
+                            'occupation': occupation, 'gothram': gothram, 'photo_url': photo_b64
+                        }
+                        supabase.table('devotees').insert(data).execute()
+                        st.success(f"✅ {name} registered! ID: {dev_id}")
+                        st.balloons()
+    
     with tab2:
         devotees = supabase.table('devotees').select('id,name,mobile_no').execute()
         if devotees.data:
@@ -623,22 +671,27 @@ def devotee_management_page():
                 col1, col2 = st.columns(2)
                 with col1:
                     fm_name = st.text_input("Name")
-                    fm_dob = st.date_input("DOB", value=date(2000,1,1), min_value=MIN_DATE, max_value=MAX_DATE)
+                    fm_dob_str = st.text_input("DOB (DD/MM/YYYY)", value=format_date_ddmmyyyy(date(2000,1,1)), placeholder="DD/MM/YYYY")
                     fm_relation = st.selectbox("Relation", RELATION_TYPES)
                 with col2:
-                    fm_wedding = st.date_input("Wedding Day", value=None, min_value=MIN_DATE, max_value=MAX_DATE)
+                    fm_wedding_str = st.text_input("Wedding Day (DD/MM/YYYY)", placeholder="DD/MM/YYYY")
                     fm_natchathiram = st.selectbox("Natchathiram", ["--"] + NATCHATHIRAM_LIST)
                 if st.form_submit_button("Add Member"):
-                    if fm_name:
+                    fm_dob = parse_date_ddmmyyyy(fm_dob_str) if fm_dob_str else None
+                    fm_wedding = parse_date_ddmmyyyy(fm_wedding_str) if fm_wedding_str else None
+                    if fm_name and fm_dob:
                         supabase.table('family_members').insert({
-                            'devotee_id': dev_id, 'name': fm_name, 'dob': format_date_for_db(fm_dob),
-                            'relation_type': fm_relation, 'wedding_day': format_date_for_db(fm_wedding) if fm_wedding else None,
+                            'devotee_id': dev_id, 'name': fm_name, 'dob': date_to_db(fm_dob),
+                            'relation_type': fm_relation, 'wedding_day': date_to_db(fm_wedding) if fm_wedding else None,
                             'natchathiram': fm_natchathiram if fm_natchathiram!="--" else None
                         }).execute()
                         st.success("Family member added")
                         st.rerun()
+                    else:
+                        st.error("Name and valid DOB required")
         else:
             st.warning("No devotees found. Register a devotee first.")
+    
     with tab3:
         search = st.text_input("🔍 Search by name/mobile/address")
         query = supabase.table('devotees').select('*').order('created_at', desc=True)
@@ -668,9 +721,10 @@ def devotee_management_page():
                     supabase.table('devotee_yearly_pooja').delete().eq('devotee_id', d['id']).execute()
                     supabase.table('devotees').delete().eq('id', d['id']).execute()
                     st.rerun()
+    
     with tab4:
         st.markdown("Download template, fill, and upload.")
-        template = pd.DataFrame([["Sample","1980-01-01","Male","9876543210","email@ex.com","Address","Aswini","2005-05-10","Business","Vishwamitra"]],
+        template = pd.DataFrame([["Sample","01/01/1980","Male","9876543210","email@ex.com","Address","Aswini","10/05/2005","Business","Vishwamitra"]],
                                 columns=["Name","DOB","Gender","Mobile","Email","Address","Natchathiram","WeddingDay","Occupation","Gothram"])
         csv = template.to_csv(index=False).encode()
         st.download_button("📥 Template", csv, "devotee_template.csv")
@@ -682,15 +736,18 @@ def devotee_management_page():
                 for _, row in df.iterrows():
                     try:
                         dev_id = generate_unique_id('DEV')
+                        dob = parse_date_ddmmyyyy(str(row['DOB'])) if pd.notna(row['DOB']) else None
+                        wedding = parse_date_ddmmyyyy(str(row['WeddingDay'])) if pd.notna(row['WeddingDay']) else None
                         supabase.table('devotees').insert({
-                            'devotee_id': dev_id, 'name': str(row['Name']), 'dob': row['DOB'] if pd.notna(row['DOB']) else None,
+                            'devotee_id': dev_id, 'name': str(row['Name']), 'dob': date_to_db(dob) if dob else None,
                             'gender': str(row['Gender']), 'mobile_no': str(row['Mobile']), 'email': str(row['Email']),
                             'address': str(row['Address']), 'natchathiram': str(row['Natchathiram']),
-                            'wedding_day': row['WeddingDay'] if pd.notna(row['WeddingDay']) else None,
+                            'wedding_day': date_to_db(wedding) if wedding else None,
                             'occupation': str(row['Occupation']), 'gothram': str(row['Gothram'])
                         }).execute()
                         success+=1
-                    except: pass
+                    except Exception as e:
+                        st.warning(f"Error in row: {e}")
                 st.success(f"Imported {success} devotees")
 
 # ============================================================
@@ -699,12 +756,13 @@ def devotee_management_page():
 def billing_page():
     render_header()
     tab1, tab2 = st.tabs(["🧾 New Bill", "📋 Bill History"])
+    
     with tab1:
         col1, col2 = st.columns(2)
         with col1:
             manual_bill = st.text_input("Manual Bill No (optional)")
             book_no = st.text_input("Book No (optional)")
-            bill_date = st.date_input("Date", date.today())
+            bill_date_str = st.text_input("Bill Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()), placeholder="DD/MM/YYYY")
             pooja_types = supabase.table('pooja_types').select('name,amount').eq('is_active',True).execute()
             pooja_options = {p['name']: p['amount'] for p in pooja_types.data} if pooja_types.data else {}
             pooja = st.selectbox("Pooja Type", list(pooja_options.keys()))
@@ -749,85 +807,96 @@ def billing_page():
                 dev_name = guest_name
                 dev_mobile = guest_mobile
                 dev_address = guest_address
+        
         if st.button("Generate Bill", type="primary"):
             if dev_type=="Guest" and not guest_name:
                 st.error("Enter guest name")
             elif amount<=0:
                 st.error("Invalid amount")
             else:
-                bill_no = generate_unique_id('BILL')
-                bill_date_str = format_date_ddmmyyyy(bill_date)
-                data = {
-                    'bill_no': bill_no, 'manual_bill_no': manual_bill, 'bill_book_no': book_no,
-                    'devotee_type': 'registered' if dev_type=="Registered" else 'guest',
-                    'devotee_id': devotee_id if dev_type=="Registered" else None,
-                    'guest_name': guest_name if dev_type=="Guest" else None,
-                    'guest_mobile': guest_mobile if dev_type=="Guest" else None,
-                    'guest_address': guest_address if dev_type=="Guest" else None,
-                    'pooja_type': pooja, 'amount': amount, 'bill_date': format_date_for_db(bill_date),
-                    'payment_mode': payment
-                }
-                supabase.table('bills').insert(data).execute()
-                st.success(f"Bill generated: {bill_no}")
-                st.balloons()
-                st.markdown(f"""
-                <div style='border:2px solid #667eea; padding:20px; border-radius:10px; background:white; margin:10px 0;'>
-                    <h3 style='text-align:center'>{TEMPLE_NAME}</h3>
-                    <p style='text-align:center'>{TEMPLE_TRUST}<br>{TEMPLE_ADDRESS}<br>✉ {TEMPLE_EMAIL}</p>
-                    <hr><h4 style='text-align:center'>BILL / RECEIPT</h4><hr>
-                    <p><strong>Bill No:</strong> {bill_no}<br>
-                    <strong>Date:</strong> {bill_date_str}<br>
-                    <strong>Name:</strong> {dev_name}<br>
-                    <strong>Address:</strong> {dev_address}<br>
-                    <strong>Mobile:</strong> {dev_mobile}<br>
-                    <strong>Pooja:</strong> {pooja}<br>
-                    <strong>Amount:</strong> {TEMPLE_CONFIG['currency']}{amount:,.2f}</p>
-                    <hr><p style='text-align:center'>🙏 Thank you! {TEMPLE_TAMIL} 🙏</p>
-                </div>
-                """, unsafe_allow_html=True)
-                colA, colB = st.columns(2)
-                with colA:
-                    if PDF_AVAILABLE:
-                        pdf = generate_bill_pdf(bill_no, manual_bill, book_no, bill_date_str, dev_name, dev_address, dev_mobile, pooja, amount)
-                        if pdf:
-                            st.download_button("📥 Download PDF", data=pdf, file_name=f"Bill_{bill_no}.pdf", mime="application/pdf")
-                with colB:
-                    wa_num = dev_mobile or (guest_mobile if dev_type=="Guest" else "")
-                    if wa_num:
-                        wa_msg = build_bill_whatsapp_message(bill_no, bill_date_str, dev_name, pooja, amount, manual_bill, book_no)
-                        st.markdown(f'<a href="{make_whatsapp_link(wa_num, wa_msg)}" target="_blank" style="display:inline-block; background:#25D366; color:white; padding:8px 20px; border-radius:10px; text-decoration:none;">📲 Send via WhatsApp</a>', unsafe_allow_html=True)
+                bill_date = parse_date_ddmmyyyy(bill_date_str)
+                if not bill_date:
+                    st.error("Invalid bill date. Use DD/MM/YYYY")
+                else:
+                    bill_no = generate_unique_id('BILL')
+                    bill_date_display = format_date_ddmmyyyy(bill_date)
+                    data = {
+                        'bill_no': bill_no, 'manual_bill_no': manual_bill, 'bill_book_no': book_no,
+                        'devotee_type': 'registered' if dev_type=="Registered" else 'guest',
+                        'devotee_id': devotee_id if dev_type=="Registered" else None,
+                        'guest_name': guest_name if dev_type=="Guest" else None,
+                        'guest_mobile': guest_mobile if dev_type=="Guest" else None,
+                        'guest_address': guest_address if dev_type=="Guest" else None,
+                        'pooja_type': pooja, 'amount': amount, 'bill_date': date_to_db(bill_date),
+                        'payment_mode': payment
+                    }
+                    supabase.table('bills').insert(data).execute()
+                    st.success(f"Bill generated: {bill_no}")
+                    st.balloons()
+                    st.markdown(f"""
+                    <div style='border:2px solid #667eea; padding:20px; border-radius:10px; background:white; margin:10px 0;'>
+                        <h3 style='text-align:center'>{TEMPLE_NAME}</h3>
+                        <p style='text-align:center'>{TEMPLE_TRUST}<br>{TEMPLE_ADDRESS}<br>✉ {TEMPLE_EMAIL}</p>
+                        <hr><h4 style='text-align:center'>BILL / RECEIPT</h4><hr>
+                        <p><strong>Bill No:</strong> {bill_no}<br>
+                        <strong>Date:</strong> {bill_date_display}<br>
+                        <strong>Name:</strong> {dev_name}<br>
+                        <strong>Address:</strong> {dev_address}<br>
+                        <strong>Mobile:</strong> {dev_mobile}<br>
+                        <strong>Pooja:</strong> {pooja}<br>
+                        <strong>Amount:</strong> {TEMPLE_CONFIG['currency']}{amount:,.2f}</p>
+                        <hr><p style='text-align:center'>🙏 Thank you! {TEMPLE_TAMIL} 🙏</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    colA, colB = st.columns(2)
+                    with colA:
+                        if PDF_AVAILABLE:
+                            pdf = generate_bill_pdf(bill_no, manual_bill, book_no, bill_date_display, dev_name, dev_address, dev_mobile, pooja, amount)
+                            if pdf:
+                                st.download_button("📥 Download PDF", data=pdf, file_name=f"Bill_{bill_no}.pdf", mime="application/pdf")
+                    with colB:
+                        wa_num = dev_mobile or (guest_mobile if dev_type=="Guest" else "")
+                        if wa_num:
+                            wa_msg = build_bill_whatsapp_message(bill_no, bill_date_display, dev_name, pooja, amount, manual_bill, book_no)
+                            st.markdown(f'<a href="{make_whatsapp_link(wa_num, wa_msg)}" target="_blank" style="display:inline-block; background:#25D366; color:white; padding:8px 20px; border-radius:10px; text-decoration:none;">📲 Send via WhatsApp</a>', unsafe_allow_html=True)
+    
     with tab2:
         st.subheader("Bill History with Delete Option")
-        from_date = st.date_input("From", date.today()-timedelta(30))
-        to_date = st.date_input("To", date.today())
-        bills = supabase.table('bills').select('*').gte('bill_date', format_date_for_db(from_date)).lte('bill_date', format_date_for_db(to_date)).order('bill_date', desc=True).execute()
-        if bills.data:
-            for bill in bills.data:
-                bill_display_date = format_date_ddmmyyyy(datetime.strptime(bill['bill_date'], '%Y-%m-%d').date()) if bill['bill_date'] else ''
-                with st.expander(f"🧾 {bill['bill_no']} - {bill.get('guest_name') or 'Registered'} - ₹{bill['amount']} - {bill_display_date}"):
-                    col1, col2 = st.columns([3,1])
-                    with col1:
-                        st.write(f"**Manual Bill:** {bill.get('manual_bill_no','N/A')}")
-                        st.write(f"**Book No:** {bill.get('bill_book_no','N/A')}")
-                        st.write(f"**Pooja:** {bill['pooja_type']}")
-                        st.write(f"**Amount:** ₹{bill['amount']:,.2f}")
-                        st.write(f"**Payment:** {bill.get('payment_mode','cash')}")
-                    with col2:
-                        if st.button("🗑️ Delete", key=f"del_bill_{bill['id']}"):
-                            supabase.table('bills').delete().eq('id', bill['id']).execute()
-                            st.rerun()
-                    if PDF_AVAILABLE:
-                        pdf = generate_bill_pdf(bill['bill_no'], bill.get('manual_bill_no',''), bill.get('bill_book_no',''), 
-                                               bill_display_date,
-                                               bill.get('guest_name',''), bill.get('guest_address',''), bill.get('guest_mobile',''),
-                                               bill['pooja_type'], bill['amount'])
-                        if pdf:
-                            st.download_button("📥 PDF", pdf, f"Bill_{bill['bill_no']}.pdf", mime="application/pdf", key=f"pdf_{bill['id']}")
+        from_date_str = st.text_input("From Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()-timedelta(30)), placeholder="DD/MM/YYYY")
+        to_date_str = st.text_input("To Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()), placeholder="DD/MM/YYYY")
+        from_date = parse_date_ddmmyyyy(from_date_str) if from_date_str else None
+        to_date = parse_date_ddmmyyyy(to_date_str) if to_date_str else None
+        if from_date and to_date:
+            bills = supabase.table('bills').select('*').gte('bill_date', date_to_db(from_date)).lte('bill_date', date_to_db(to_date)).order('bill_date', desc=True).execute()
+            if bills.data:
+                for bill in bills.data:
+                    bill_display_date = format_date_ddmmyyyy(datetime.strptime(bill['bill_date'], '%Y-%m-%d').date()) if bill['bill_date'] else ''
+                    with st.expander(f"🧾 {bill['bill_no']} - {bill.get('guest_name') or 'Registered'} - ₹{bill['amount']} - {bill_display_date}"):
+                        col1, col2 = st.columns([3,1])
+                        with col1:
+                            st.write(f"**Manual Bill:** {bill.get('manual_bill_no','N/A')}")
+                            st.write(f"**Book No:** {bill.get('bill_book_no','N/A')}")
+                            st.write(f"**Pooja:** {bill['pooja_type']}")
+                            st.write(f"**Amount:** ₹{bill['amount']:,.2f}")
+                            st.write(f"**Payment:** {bill.get('payment_mode','cash')}")
+                        with col2:
+                            if st.button("🗑️ Delete", key=f"del_bill_{bill['id']}"):
+                                supabase.table('bills').delete().eq('id', bill['id']).execute()
+                                st.rerun()
+                        if PDF_AVAILABLE:
+                            pdf = generate_bill_pdf(bill['bill_no'], bill.get('manual_bill_no',''), bill.get('bill_book_no',''), 
+                                                   bill_display_date,
+                                                   bill.get('guest_name',''), bill.get('guest_address',''), bill.get('guest_mobile',''),
+                                                   bill['pooja_type'], bill['amount'])
+                            if pdf:
+                                st.download_button("📥 PDF", pdf, f"Bill_{bill['bill_no']}.pdf", mime="application/pdf", key=f"pdf_{bill['id']}")
+            else:
+                st.info("No bills found")
         else:
-            st.info("No bills found")
+            st.warning("Invalid date range")
 
 # ============================================================
-# POOJA MANAGEMENT (unchanged except date display)
+# POOJA MANAGEMENT (with DD/MM/YYYY)
 # ============================================================
 def pooja_management_page():
     render_header()
@@ -868,28 +937,35 @@ def pooja_management_page():
                 p_name = st.text_input("Pooja Name")
                 p_time = st.text_input("Time (e.g., 09:00 AM)")
             with col2:
-                p_date = st.date_input("Date", date.today())
+                p_date_str = st.text_input("Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()), placeholder="DD/MM/YYYY")
                 priest = st.text_input("Priest Name")
             notes = st.text_area("Notes")
             if st.form_submit_button("Schedule"):
-                if p_name:
-                    supabase.table('daily_pooja').insert({'pooja_name':p_name,'pooja_time':p_time,'pooja_date':format_date_for_db(p_date),'priest_name':priest,'notes':notes}).execute()
+                p_date = parse_date_ddmmyyyy(p_date_str)
+                if p_name and p_date:
+                    supabase.table('daily_pooja').insert({'pooja_name':p_name,'pooja_time':p_time,'pooja_date':date_to_db(p_date),'priest_name':priest,'notes':notes}).execute()
                     st.rerun()
-        view_date = st.date_input("View date", date.today())
-        schedule = supabase.table('daily_pooja').select('*').eq('pooja_date', format_date_for_db(view_date)).execute()
-        if schedule.data:
-            for s in schedule.data:
-                c1,c2,c3 = st.columns([2,1,1])
-                c1.write(f"**{s['pooja_name']}** at {s.get('pooja_time','')}")
-                if c2.button("✅ Complete" if s['status']!='completed' else "🔄 Pending", key=f"stat_{s['id']}"):
-                    new_status = 'completed' if s['status']!='completed' else 'pending'
-                    supabase.table('daily_pooja').update({'status':new_status}).eq('id',s['id']).execute()
-                    st.rerun()
-                if c3.button("🗑️", key=f"del_daily_{s['id']}"):
-                    supabase.table('daily_pooja').delete().eq('id',s['id']).execute()
-                    st.rerun()
+                else:
+                    st.error("Invalid date")
+        view_date_str = st.text_input("View Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()), placeholder="DD/MM/YYYY")
+        view_date = parse_date_ddmmyyyy(view_date_str) if view_date_str else None
+        if view_date:
+            schedule = supabase.table('daily_pooja').select('*').eq('pooja_date', date_to_db(view_date)).execute()
+            if schedule.data:
+                for s in schedule.data:
+                    c1,c2,c3 = st.columns([2,1,1])
+                    c1.write(f"**{s['pooja_name']}** at {s.get('pooja_time','')}")
+                    if c2.button("✅ Complete" if s['status']!='completed' else "🔄 Pending", key=f"stat_{s['id']}"):
+                        new_status = 'completed' if s['status']!='completed' else 'pending'
+                        supabase.table('daily_pooja').update({'status':new_status}).eq('id',s['id']).execute()
+                        st.rerun()
+                    if c3.button("🗑️", key=f"del_daily_{s['id']}"):
+                        supabase.table('daily_pooja').delete().eq('id',s['id']).execute()
+                        st.rerun()
+            else:
+                st.info("No poojas scheduled")
         else:
-            st.info("No poojas scheduled")
+            st.warning("Invalid date")
     with tab3:
         devotees = supabase.table('devotees').select('id,name,mobile_no').execute()
         if devotees.data:
@@ -898,12 +974,16 @@ def pooja_management_page():
             dev_id = dev_opt[selected]
             with st.form("add_sub"):
                 pooja_type = st.selectbox("Pooja", [p['name'] for p in supabase.table('pooja_types').select('name').execute().data or []])
-                pooja_date = st.date_input("Pooja Date")
+                pooja_date_str = st.text_input("Pooja Date (DD/MM/YYYY)", placeholder="DD/MM/YYYY")
                 amount = st.number_input("Amount", min_value=0.0)
                 desc = st.text_area("Description")
                 if st.form_submit_button("Add Subscription"):
-                    supabase.table('devotee_yearly_pooja').insert({'devotee_id':dev_id,'pooja_type':pooja_type,'pooja_date':format_date_for_db(pooja_date),'amount':amount,'description':desc}).execute()
-                    st.rerun()
+                    pooja_date = parse_date_ddmmyyyy(pooja_date_str)
+                    if pooja_date:
+                        supabase.table('devotee_yearly_pooja').insert({'devotee_id':dev_id,'pooja_type':pooja_type,'pooja_date':date_to_db(pooja_date),'amount':amount,'description':desc}).execute()
+                        st.rerun()
+                    else:
+                        st.error("Invalid date")
             subs = supabase.table('devotee_yearly_pooja').select('*').eq('devotee_id',dev_id).execute()
             if subs.data:
                 for sub in subs.data:
@@ -918,7 +998,7 @@ def pooja_management_page():
             st.warning("No devotees found")
 
 # ============================================================
-# EXPENSE TRACKING (unchanged)
+# EXPENSE TRACKING (with DD/MM/YYYY)
 # ============================================================
 def expense_page():
     render_header()
@@ -931,37 +1011,44 @@ def expense_page():
                 exp_list = [e['name'] for e in exp_types.data] if exp_types.data else []
                 exp_type = st.selectbox("Expense Type", exp_list)
                 amount = st.number_input("Amount", min_value=0.0, step=10.0)
-                date_exp = st.date_input("Date", date.today())
+                date_exp_str = st.text_input("Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()), placeholder="DD/MM/YYYY")
             with col2:
                 bill_no = st.text_input("Bill/Invoice No")
                 vendor = st.text_input("Vendor")
             desc = st.text_area("Description")
             if st.form_submit_button("Add"):
-                if exp_type and amount>0:
+                date_exp = parse_date_ddmmyyyy(date_exp_str)
+                if exp_type and amount>0 and date_exp:
                     supabase.table('expenses').insert({
                         'expense_type':exp_type,'amount':amount,'description':desc,
-                        'expense_date':format_date_for_db(date_exp),'bill_no':bill_no,'vendor_name':vendor
+                        'expense_date':date_to_db(date_exp),'bill_no':bill_no,'vendor_name':vendor
                     }).execute()
                     st.success("Expense added")
                     st.rerun()
+                else:
+                    st.error("Invalid date or missing fields")
     with tab2:
-        from_d = st.date_input("From", date.today()-timedelta(30))
-        to_d = st.date_input("To", date.today())
-        exps = supabase.table('expenses').select('*').gte('expense_date',format_date_for_db(from_d)).lte('expense_date',format_date_for_db(to_d)).order('expense_date', desc=True).execute()
-        if exps.data:
-            df = pd.DataFrame(exps.data)
-            total = df['amount'].sum()
-            st.metric("Total Expenses", f"{TEMPLE_CONFIG['currency']}{total:,.2f}")
-            # Convert dates for display
-            df['expense_date_display'] = df['expense_date'].apply(lambda x: format_date_ddmmyyyy(datetime.strptime(x, '%Y-%m-%d').date()) if x else '')
-            st.dataframe(df[['expense_date_display','expense_type','amount','description','vendor_name']])
-            csv = df.to_csv(index=False).encode()
-            st.download_button("📥 Export", csv, "expenses.csv")
+        from_date_str = st.text_input("From Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()-timedelta(30)), placeholder="DD/MM/YYYY")
+        to_date_str = st.text_input("To Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()), placeholder="DD/MM/YYYY")
+        from_date = parse_date_ddmmyyyy(from_date_str) if from_date_str else None
+        to_date = parse_date_ddmmyyyy(to_date_str) if to_date_str else None
+        if from_date and to_date:
+            exps = supabase.table('expenses').select('*').gte('expense_date', date_to_db(from_date)).lte('expense_date', date_to_db(to_date)).order('expense_date', desc=True).execute()
+            if exps.data:
+                df = pd.DataFrame(exps.data)
+                total = df['amount'].sum()
+                st.metric("Total Expenses", f"{TEMPLE_CONFIG['currency']}{total:,.2f}")
+                df['expense_date_display'] = df['expense_date'].apply(lambda x: format_date_ddmmyyyy(datetime.strptime(x, '%Y-%m-%d').date()) if x else '')
+                st.dataframe(df[['expense_date_display','expense_type','amount','description','vendor_name']])
+                csv = df.to_csv(index=False).encode()
+                st.download_button("📥 Export", csv, "expenses.csv")
+            else:
+                st.info("No expenses")
         else:
-            st.info("No expenses")
+            st.warning("Invalid date range")
 
 # ============================================================
-# DONATIONS (unchanged except date display)
+# DONATIONS (with DD/MM/YYYY)
 # ============================================================
 def donations_page():
     render_header()
@@ -976,36 +1063,44 @@ def donations_page():
             with col2:
                 amount = st.number_input("Amount *", min_value=0.0)
                 don_type = st.selectbox("Type", ["General","Temple Construction","Annadhanam","Festival","Other"])
-                date_don = st.date_input("Date", date.today())
+                date_don_str = st.text_input("Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()), placeholder="DD/MM/YYYY")
             purpose = st.text_area("Purpose")
             payment = st.selectbox("Payment Mode", ["cash","card","upi","bank"])
             if st.form_submit_button("Record"):
-                if donor and amount>0:
+                date_don = parse_date_ddmmyyyy(date_don_str)
+                if donor and amount>0 and date_don:
                     don_no = generate_unique_id('DON')
                     supabase.table('donations').insert({
                         'donation_no':don_no,'donor_name':donor,'donor_mobile':mobile,'donor_email':email,
                         'amount':amount,'donation_type':don_type,'purpose':purpose,
-                        'donation_date':format_date_for_db(date_don),'payment_mode':payment
+                        'donation_date':date_to_db(date_don),'payment_mode':payment
                     }).execute()
                     st.success(f"Donation recorded! Receipt: {don_no}")
                     st.balloons()
+                else:
+                    st.error("Invalid date or missing fields")
     with tab2:
-        from_d = st.date_input("From", date.today()-timedelta(365))
-        to_d = st.date_input("To", date.today())
-        don = supabase.table('donations').select('*').gte('donation_date',format_date_for_db(from_d)).lte('donation_date',format_date_for_db(to_d)).order('donation_date', desc=True).execute()
-        if don.data:
-            df = pd.DataFrame(don.data)
-            total = df['amount'].sum()
-            st.metric("Total Donations", f"{TEMPLE_CONFIG['currency']}{total:,.2f}")
-            df['donation_date_display'] = df['donation_date'].apply(lambda x: format_date_ddmmyyyy(datetime.strptime(x, '%Y-%m-%d').date()) if x else '')
-            st.dataframe(df[['donation_no','donation_date_display','donor_name','donation_type','amount','payment_mode']])
-            csv = df.to_csv(index=False).encode()
-            st.download_button("📥 Export", csv, "donations.csv")
+        from_date_str = st.text_input("From Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()-timedelta(365)), placeholder="DD/MM/YYYY")
+        to_date_str = st.text_input("To Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()), placeholder="DD/MM/YYYY")
+        from_date = parse_date_ddmmyyyy(from_date_str) if from_date_str else None
+        to_date = parse_date_ddmmyyyy(to_date_str) if to_date_str else None
+        if from_date and to_date:
+            don = supabase.table('donations').select('*').gte('donation_date', date_to_db(from_date)).lte('donation_date', date_to_db(to_date)).order('donation_date', desc=True).execute()
+            if don.data:
+                df = pd.DataFrame(don.data)
+                total = df['amount'].sum()
+                st.metric("Total Donations", f"{TEMPLE_CONFIG['currency']}{total:,.2f}")
+                df['donation_date_display'] = df['donation_date'].apply(lambda x: format_date_ddmmyyyy(datetime.strptime(x, '%Y-%m-%d').date()) if x else '')
+                st.dataframe(df[['donation_no','donation_date_display','donor_name','donation_type','amount','payment_mode']])
+                csv = df.to_csv(index=False).encode()
+                st.download_button("📥 Export", csv, "donations.csv")
+            else:
+                st.info("No donations")
         else:
-            st.info("No donations")
+            st.warning("Invalid date range")
 
 # ============================================================
-# SAMAYA VAKUPPU (date format)
+# SAMAYA VAKUPPU (with DD/MM/YYYY)
 # ============================================================
 def samaya_vakuppu_page():
     render_header()
@@ -1019,25 +1114,28 @@ def samaya_vakuppu_page():
                 father_name = st.text_input("Father's Name *")
                 bond_no = st.text_input("Bond No *")
             with col2:
-                bond_issue_date = st.date_input("Bond Issue Date", date.today())
+                bond_issue_date_str = st.text_input("Bond Issue Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()), placeholder="DD/MM/YYYY")
                 issued_bank = st.text_input("Issued Bank")
             address = st.text_area("Address")
             bond_scan = st.file_uploader("Upload Bond Scan Copy", type=['pdf','jpg','png','jpeg'])
             student_photo = st.file_uploader("Student Photo", type=['jpg','png','jpeg'])
             if st.form_submit_button("Register Bond"):
-                if student_name and father_name and bond_no:
+                bond_issue_date = parse_date_ddmmyyyy(bond_issue_date_str)
+                if student_name and father_name and bond_no and bond_issue_date:
                     bond_id = generate_unique_id('SAM')
                     bond_scan_b64 = base64.b64encode(bond_scan.getvalue()).decode() if bond_scan else None
                     photo_b64 = base64.b64encode(student_photo.getvalue()).decode() if student_photo else None
                     data = {
                         'bond_id': bond_id, 'student_name': student_name, 'father_name': father_name,
-                        'bond_no': bond_no, 'bond_issue_date': format_date_for_db(bond_issue_date),
+                        'bond_no': bond_no, 'bond_issue_date': date_to_db(bond_issue_date),
                         'issued_bank': issued_bank, 'address': address,
                         'bond_scan_url': bond_scan_b64, 'photo_url': photo_b64
                     }
                     supabase.table('samaya_vakuppu').insert(data).execute()
                     st.success(f"Bond registered! ID: {bond_id}")
                     st.balloons()
+                else:
+                    st.error("Please fill all required fields and valid date")
     with tab2:
         bonds = supabase.table('samaya_vakuppu').select('*').order('created_at', desc=True).execute()
         if bonds.data:
@@ -1067,7 +1165,7 @@ def samaya_vakuppu_page():
             st.info("No bonds registered")
 
 # ============================================================
-# THIRUMANA MANDAPAM (date format)
+# THIRUMANA MANDAPAM (with DD/MM/YYYY)
 # ============================================================
 def thirumana_mandapam_page():
     render_header()
@@ -1081,23 +1179,26 @@ def thirumana_mandapam_page():
                 bond_no = st.text_input("Bond No *")
                 address = st.text_area("Address")
             with col2:
-                bond_issue_date = st.date_input("Bond Issue Date", date.today())
+                bond_issue_date_str = st.text_input("Bond Issue Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()), placeholder="DD/MM/YYYY")
                 issued_by = st.text_input("Issued By")
             bond_scan = st.file_uploader("Upload Bond Scan Copy", type=['pdf','jpg','png','jpeg'])
             photo = st.file_uploader("Photo", type=['jpg','png','jpeg'])
             if st.form_submit_button("Register Bond"):
-                if name and bond_no:
+                bond_issue_date = parse_date_ddmmyyyy(bond_issue_date_str)
+                if name and bond_no and bond_issue_date:
                     bond_id = generate_unique_id('THI')
                     scan_b64 = base64.b64encode(bond_scan.getvalue()).decode() if bond_scan else None
                     photo_b64 = base64.b64encode(photo.getvalue()).decode() if photo else None
                     data = {
                         'bond_id': bond_id, 'name': name, 'bond_no': bond_no,
-                        'address': address, 'bond_issue_date': format_date_for_db(bond_issue_date),
+                        'address': address, 'bond_issue_date': date_to_db(bond_issue_date),
                         'issued_by': issued_by, 'scan_copy_url': scan_b64, 'photo_url': photo_b64
                     }
                     supabase.table('thirumana_mandapam').insert(data).execute()
                     st.success(f"Bond registered! ID: {bond_id}")
                     st.balloons()
+                else:
+                    st.error("Please fill all required fields and valid date")
     with tab2:
         bonds = supabase.table('thirumana_mandapam').select('*').order('created_at', desc=True).execute()
         if bonds.data:
@@ -1126,7 +1227,7 @@ def thirumana_mandapam_page():
             st.info("No bonds registered")
 
 # ============================================================
-# ASSET MANAGEMENT (with barcode)
+# ASSET MANAGEMENT (with DD/MM/YYYY)
 # ============================================================
 def assets_page():
     render_header()
@@ -1141,17 +1242,18 @@ def assets_page():
                 serial = st.text_input("Serial No")
             with col2:
                 donor = st.text_input("Donor")
-                date_don = st.date_input("Donation/Purchase Date", date.today(), min_value=MIN_DATE, max_value=MAX_DATE)
+                date_don_str = st.text_input("Donation/Purchase Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()), placeholder="DD/MM/YYYY")
                 cost = st.number_input("Cost", min_value=0.0)
                 location = st.text_input("Location")
             desc = st.text_area("Description")
             status = st.selectbox("Status", ["active","maintenance","damaged","donated"])
             generate_barcode = st.checkbox("Generate Barcode for this asset", value=True)
             if st.form_submit_button("Add Asset"):
-                if tag and name:
+                date_don = parse_date_ddmmyyyy(date_don_str)
+                if tag and name and date_don:
                     data = {
                         'asset_tag': tag, 'asset_name': name, 'category': category, 'serial_no': serial,
-                        'donor_name': donor, 'donation_date': format_date_for_db(date_don), 'purchase_cost': cost,
+                        'donor_name': donor, 'donation_date': date_to_db(date_don), 'purchase_cost': cost,
                         'location': location, 'description': desc, 'status': status
                     }
                     if generate_barcode:
@@ -1161,6 +1263,8 @@ def assets_page():
                     supabase.table('assets').insert(data).execute()
                     st.success(f"Asset '{name}' added successfully")
                     st.rerun()
+                else:
+                    st.error("Invalid date or missing required fields")
     with tab2:
         search = st.text_input("Search Assets by tag/name/donor")
         query = supabase.table('assets').select('*').order('created_at', desc=True)
@@ -1201,11 +1305,18 @@ def assets_page():
 def reports_page():
     render_header()
     report_type = st.selectbox("Report Type", ["Income Report","Financial Summary","Devotee Report","Pooja Income","Expense Report","Donation Report"])
-    from_date = st.date_input("From", date.today()-timedelta(30))
-    to_date = st.date_input("To", date.today())
+    from_date_str = st.text_input("From Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()-timedelta(30)), placeholder="DD/MM/YYYY")
+    to_date_str = st.text_input("To Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()), placeholder="DD/MM/YYYY")
+    from_date = parse_date_ddmmyyyy(from_date_str) if from_date_str else None
+    to_date = parse_date_ddmmyyyy(to_date_str) if to_date_str else None
+    
+    if not from_date or not to_date:
+        st.warning("Please enter valid date range")
+        return
+    
     if report_type == "Income Report":
         st.subheader("Income Report")
-        bills = supabase.table('bills').select('*').gte('bill_date', format_date_for_db(from_date)).lte('bill_date', format_date_for_db(to_date)).execute()
+        bills = supabase.table('bills').select('*').gte('bill_date', date_to_db(from_date)).lte('bill_date', date_to_db(to_date)).execute()
         if bills.data:
             data = []
             for b in bills.data:
@@ -1250,21 +1361,21 @@ def reports_page():
             csv = df.to_csv(index=False).encode()
             st.download_button("📥 Download", csv, "devotees.csv")
     elif report_type == "Pooja Income":
-        bills = supabase.table('bills').select('pooja_type,amount').gte('bill_date', format_date_for_db(from_date)).lte('bill_date', format_date_for_db(to_date)).execute()
+        bills = supabase.table('bills').select('pooja_type,amount').gte('bill_date', date_to_db(from_date)).lte('bill_date', date_to_db(to_date)).execute()
         if bills.data:
             df = pd.DataFrame(bills.data)
             summary = df.groupby('pooja_type')['amount'].sum().reset_index()
             summary['amount'] = summary['amount'].apply(lambda x: f"{TEMPLE_CONFIG['currency']}{x:,.2f}")
             st.dataframe(summary)
     elif report_type == "Expense Report":
-        exps = supabase.table('expenses').select('expense_type,amount').gte('expense_date', format_date_for_db(from_date)).lte('expense_date', format_date_for_db(to_date)).execute()
+        exps = supabase.table('expenses').select('expense_type,amount').gte('expense_date', date_to_db(from_date)).lte('expense_date', date_to_db(to_date)).execute()
         if exps.data:
             df = pd.DataFrame(exps.data)
             summary = df.groupby('expense_type')['amount'].sum().reset_index()
             summary['amount'] = summary['amount'].apply(lambda x: f"{TEMPLE_CONFIG['currency']}{x:,.2f}")
             st.dataframe(summary)
     elif report_type == "Donation Report":
-        don = supabase.table('donations').select('donation_type,amount').gte('donation_date', format_date_for_db(from_date)).lte('donation_date', format_date_for_db(to_date)).execute()
+        don = supabase.table('donations').select('donation_type,amount').gte('donation_date', date_to_db(from_date)).lte('donation_date', date_to_db(to_date)).execute()
         if don.data:
             df = pd.DataFrame(don.data)
             summary = df.groupby('donation_type')['amount'].sum().reset_index()
