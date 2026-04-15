@@ -306,8 +306,15 @@ def build_bill_whatsapp_message(bill_no, bill_date, name, pooja, amount, manual_
 # ============================================================
 # PDF GENERATION (Centered Amman Image)
 # ============================================================
+PDF_AVAILABLE = False
+try:
+    from fpdf import FPDF
+    PDF_AVAILABLE = True
+except ImportError:
+    pass
+
 def sanitize_text(text):
-    """Replace non-ASCII characters with a space to avoid latin-1 encoding errors."""
+    """Replace non-ASCII characters with space to avoid latin-1 encoding errors."""
     if not text:
         return ""
     return ''.join(c if ord(c) < 128 else ' ' for c in str(text))
@@ -352,7 +359,7 @@ def generate_bill_pdf(bill_no, manual_bill, bill_book, bill_date, name, address,
     else:
         pdf.ln(10)
     
-    # Temple header (sanitized)
+    # Temple header
     pdf.set_font('Helvetica', 'B', 16)
     pdf.cell(0, 10, temple_name_safe, 0, 1, 'C')
     pdf.set_font('Helvetica', '', 10)
