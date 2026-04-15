@@ -306,21 +306,34 @@ def build_bill_whatsapp_message(bill_no, bill_date, name, pooja, amount, manual_
 # ============================================================
 # PDF GENERATION (Centered Amman Image)
 # ============================================================
-PDF_AVAILABLE = False
-try:
-    from fpdf import FPDF
-    PDF_AVAILABLE = True
-except:
-    st.error("FPDF library not installed. Please install fpdf.")
+def sanitize_text(text):
+    """Replace non-ASCII characters with a space to avoid latin-1 encoding errors."""
+    if not text:
+        return ""
+    return ''.join(c if ord(c) < 128 else ' ' for c in str(text))
 
 def generate_bill_pdf(bill_no, manual_bill, bill_book, bill_date, name, address, mobile, pooja_type, amount, amman_base64=None):
     if not PDF_AVAILABLE:
         return None
     
+    # Sanitize all text inputs
+    bill_no = sanitize_text(bill_no)
+    manual_bill = sanitize_text(manual_bill)
+    bill_book = sanitize_text(bill_book)
+    bill_date = sanitize_text(bill_date)
+    name = sanitize_text(name)
+    address = sanitize_text(address)
+    mobile = sanitize_text(mobile)
+    pooja_type = sanitize_text(pooja_type)
+    temple_name_safe = sanitize_text(TEMPLE_NAME)
+    temple_trust_safe = sanitize_text(TEMPLE_TRUST)
+    temple_address_safe = sanitize_text(TEMPLE_ADDRESS)
+    temple_email_safe = sanitize_text(TEMPLE_EMAIL)
+    temple_tamil_safe = sanitize_text(TEMPLE_TAMIL)
+    
     amman_img_path = None
     if amman_base64:
         amman_img_path = save_base64_image_to_temp(amman_base64)
-        # If SVG, try to convert to PNG
         if amman_img_path and amman_img_path.endswith('.svg'):
             png_path = convert_svg_to_png(amman_img_path)
             if png_path:
@@ -329,55 +342,48 @@ def generate_bill_pdf(bill_no, manual_bill, bill_book, bill_date, name, address,
     pdf = FPDF()
     pdf.add_page()
     
-    # Add Amman image centered (page width 210, image width 30 -> x=90)
-    image_added = False
-    if amman_img_path and os.path.exists(amman_img_path):
+    # Add Amman image centered
+    if amman_img_path and os.path.exists(amman_img_path) and amman_img_path.lower().endswith(('.png','.jpg','.jpeg')):
         try:
-            # Check if it's a readable image (PNG/JPG)
-            if amman_img_path.lower().endswith(('.png','.jpg','.jpeg')):
-                pdf.image(amman_img_path, x=90, y=10, w=30)
-                pdf.ln(35)
-                image_added = True
-            else:
-                pdf.ln(10)
-        except Exception as e:
-            print(f"Image error: {e}")
+            pdf.image(amman_img_path, x=90, y=10, w=30)
+            pdf.ln(35)
+        except:
             pdf.ln(10)
     else:
         pdf.ln(10)
     
-    # Temple header
-    pdf.set_font('Helvetica','B',16)
-    pdf.cell(0,10,TEMPLE_NAME,0,1,'C')
-    pdf.set_font('Helvetica','',10)
-    pdf.cell(0,6,TEMPLE_TRUST,0,1,'C')
-    pdf.cell(0,6,TEMPLE_ADDRESS,0,1,'C')
-    pdf.cell(0,6,f"Email: {TEMPLE_EMAIL}",0,1,'C')
+    # Temple header (sanitized)
+    pdf.set_font('Helvetica', 'B', 16)
+    pdf.cell(0, 10, temple_name_safe, 0, 1, 'C')
+    pdf.set_font('Helvetica', '', 10)
+    pdf.cell(0, 6, temple_trust_safe, 0, 1, 'C')
+    pdf.cell(0, 6, temple_address_safe, 0, 1, 'C')
+    pdf.cell(0, 6, f"Email: {temple_email_safe}", 0, 1, 'C')
     pdf.ln(5)
-    pdf.set_font('Helvetica','B',12)
-    pdf.cell(0,8,"BILL / RECEIPT",0,1,'C')
+    pdf.set_font('Helvetica', 'B', 12)
+    pdf.cell(0, 8, "BILL / RECEIPT", 0, 1, 'C')
     pdf.ln(5)
-    pdf.set_font('Helvetica','',10)
-    pdf.cell(50,8,f"Bill No: {bill_no}",0,0)
-    pdf.cell(0,8,f"Date: {bill_date}",0,1)
+    pdf.set_font('Helvetica', '', 10)
+    pdf.cell(50, 8, f"Bill No: {bill_no}", 0, 0)
+    pdf.cell(0, 8, f"Date: {bill_date}", 0, 1)
     if manual_bill:
-        pdf.cell(50,8,f"Manual Bill: {manual_bill}",0,0)
+        pdf.cell(50, 8, f"Manual Bill: {manual_bill}", 0, 0)
     if bill_book:
-        pdf.cell(0,8,f"Book No: {bill_book}",0,1)
+        pdf.cell(0, 8, f"Book No: {bill_book}", 0, 1)
     pdf.ln(5)
-    pdf.cell(50,8,f"Name: {name}",0,1)
+    pdf.cell(50, 8, f"Name: {name}", 0, 1)
     if address:
-        pdf.cell(50,8,f"Address: {address}",0,1)
+        pdf.cell(50, 8, f"Address: {address}", 0, 1)
     if mobile:
-        pdf.cell(50,8,f"Mobile: {mobile}",0,1)
+        pdf.cell(50, 8, f"Mobile: {mobile}", 0, 1)
     pdf.ln(5)
-    pdf.cell(50,8,f"Pooja Type: {pooja_type}",0,1)
-    pdf.set_font('Helvetica','B',12)
-    pdf.cell(50,10,f"Amount: ₹ {amount:,.2f}",0,1)
+    pdf.cell(50, 8, f"Pooja Type: {pooja_type}", 0, 1)
+    pdf.set_font('Helvetica', 'B', 12)
+    pdf.cell(50, 10, f"Amount: ₹ {amount:,.2f}", 0, 1)
     pdf.ln(10)
-    pdf.set_font('Helvetica','I',8)
-    pdf.cell(0,6,"Thank you for your contribution! May Goddess Bhadreshwari bless you!",0,1,'C')
-    pdf.cell(0,6,TEMPLE_TAMIL,0,1,'C')
+    pdf.set_font('Helvetica', 'I', 8)
+    pdf.cell(0, 6, "Thank you for your contribution! May Goddess Bhadreshwari bless you!", 0, 1, 'C')
+    pdf.cell(0, 6, temple_tamil_safe, 0, 1, 'C')
     
     # Clean up temp file
     if amman_img_path and os.path.exists(amman_img_path):
