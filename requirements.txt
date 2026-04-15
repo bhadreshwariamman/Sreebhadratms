@@ -4,3 +4,4 @@ supabase>=1.0.0
 python-dotenv>=1.0.0
 openpyxl>=3.1.0
 xlsxwriter>=3.1.0
+cairosvg
