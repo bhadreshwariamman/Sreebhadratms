@@ -1,4 +1,4 @@
-# app.py - Complete Temple Management System with Amman Image Upload & Colorful UI
+# app.py - Complete Temple Management System with Asset Barcodes, Date Range, English Natchathiram
 import streamlit as st
 import pandas as pd
 from datetime import datetime, date, timedelta
@@ -57,14 +57,14 @@ TEMPLE_CONFIG = {
     "currency": "₹"
 }
 
-# Tamil Natchathiram names
-NATCHATHIRAM_TAMIL = [
-    "அஸ்வினி", "பரணி", "கார்த்திகை", "ரோகிணி", "மிருகசீரிஷம்",
-    "திருவாதிரை", "புனர்பூசம்", "பூசம்", "ஆயில்யம்", "மகம்",
-    "பூரம்", "உத்திரம்", "ஹஸ்தம்", "சித்திரை", "சுவாதி",
-    "விசாகம்", "அனுஷம்", "கேட்டை", "மூலம்", "பூராடம்",
-    "உத்திராடம்", "திருவோணம்", "அவிட்டம்", "சதயம்",
-    "பூரட்டாதி", "உத்திரட்டாதி", "ரேவதி"
+# English Natchathiram names (as requested)
+NATCHATHIRAM_ENGLISH = [
+    "Ashwini", "Bharani", "Karthigai", "Rohini", "Mrigashirsha",
+    "Thiruvadirai", "Punarvasu", "Pushya", "Ashlesha", "Magha",
+    "Purva Phalguni", "Uttara Phalguni", "Hasta", "Chitra", "Swati",
+    "Vishakha", "Anuradha", "Jyeshtha", "Mula", "Purva Ashadha",
+    "Uttara Ashadha", "Shravana", "Dhanishta", "Shatabhisha",
+    "Purva Bhadrapada", "Uttara Bhadrapada", "Revati"
 ]
 
 RELATION_TYPES = [
@@ -73,6 +73,61 @@ RELATION_TYPES = [
     "Father-in-law", "Mother-in-law", "Son-in-law",
     "Daughter-in-law", "Uncle", "Aunt", "Nephew", "Niece", "Other"
 ]
+
+# Date range for wedding day (1950-01-01 to 2050-12-31)
+MIN_DATE = date(1950, 1, 1)
+MAX_DATE = date(2050, 12, 31)
+
+# ============================================================
+# BARCODE GENERATION (for assets)
+# ============================================================
+BARCODE_AVAILABLE = False
+try:
+    import barcode
+    from barcode.writer import ImageWriter
+    BARCODE_AVAILABLE = True
+except ImportError:
+    pass
+
+QRCODE_AVAILABLE = False
+try:
+    import qrcode
+    QRCODE_AVAILABLE = True
+except ImportError:
+    pass
+
+def generate_barcode_image(data_str, barcode_type='code128'):
+    """Generate barcode image and return base64 string and raw bytes"""
+    if BARCODE_AVAILABLE:
+        try:
+            barcode_class = barcode.get_barcode_class(barcode_type)
+            buffer = io.BytesIO()
+            b = barcode_class(str(data_str), writer=ImageWriter())
+            b.write(buffer, options={'module_width': 0.4, 'module_height': 15, 'font_size': 10})
+            buffer.seek(0)
+            img_base64 = f"data:image/png;base64,{base64.b64encode(buffer.getvalue()).decode()}"
+            img_bytes = buffer.getvalue()
+            return img_base64, img_bytes
+        except:
+            pass
+    if QRCODE_AVAILABLE:
+        try:
+            qr = qrcode.QRCode(version=1, box_size=10, border=5)
+            qr.add_data(str(data_str))
+            qr.make(fit=True)
+            img = qr.make_image(fill_color="black", back_color="white")
+            buffer = io.BytesIO()
+            img.save(buffer, format='PNG')
+            buffer.seek(0)
+            img_base64 = f"data:image/png;base64,{base64.b64encode(buffer.getvalue()).decode()}"
+            img_bytes = buffer.getvalue()
+            return img_base64, img_bytes
+        except:
+            pass
+    # Fallback: simple text barcode simulation
+    fallback_svg = f'<svg width="200" height="60"><rect width="200" height="60" fill="white"/><text x="100" y="35" text-anchor="middle" font-family="monospace">{data_str}</text></svg>'
+    img_base64 = "data:image/svg+xml;base64," + base64.b64encode(fallback_svg.encode()).decode()
+    return img_base64, None
 
 # ============================================================
 # UTILITY FUNCTIONS
@@ -129,7 +184,6 @@ def set_temple_setting(key: str, value: str):
         pass
 
 def get_amman_image():
-    """Get Amman image from settings or return default SVG"""
     img = get_temple_setting('amman_image')
     if img and img.startswith('data:image'):
         return img
@@ -312,105 +366,38 @@ def generate_bill_pdf(bill_no, manual_bill, bill_book, bill_date, name, address,
     return bytes(pdf.output())
 
 # ============================================================
-# BEAUTIFUL LOGIN PAGE WITH AMMAN IMAGE (UPLOADED OR DEFAULT)
+# BEAUTIFUL LOGIN PAGE (same as before)
 # ============================================================
 def login_page():
     if not supabase:
         st.error("⚠️ Database connection failed. Check Supabase secrets.")
         return
     create_default_admin()
-    
     amman_img = get_amman_image()
-    
     st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
     * { font-family: 'Poppins', sans-serif; }
-    .stApp {
-        background: linear-gradient(135deg, #0f0c29 0%, #1a1a3e 30%, #302b63 60%, #4a1942 100%);
-    }
-    .login-container {
-        max-width: 480px;
-        margin: 60px auto;
-        padding: 40px 35px;
-        background: rgba(255,255,255,0.12);
-        backdrop-filter: blur(15px);
-        border-radius: 30px;
-        box-shadow: 0 20px 60px rgba(0,0,0,0.4), 0 0 40px rgba(255,107,53,0.2);
-        border: 1px solid rgba(255,255,255,0.18);
-        text-align: center;
-        animation: float 6s ease-in-out infinite;
-    }
-    @keyframes float {
-        0%,100% { transform: translateY(0px); }
-        50% { transform: translateY(-8px); }
-    }
-    .amman-circle {
-        position: relative;
-        display: inline-block;
-        margin-bottom: 15px;
-    }
-    .amman-img {
-        width: 160px;
-        height: 160px;
-        border-radius: 50%;
-        object-fit: cover;
-        border: 4px solid #ffd700;
-        box-shadow: 0 0 30px rgba(255,215,0,0.5);
-        animation: glow 3s ease-in-out infinite;
-    }
-    @keyframes glow {
-        0%,100% { box-shadow: 0 0 20px rgba(255,215,0,0.4); }
-        50% { box-shadow: 0 0 50px rgba(255,215,0,0.8); }
-    }
-    .temple-name {
-        color: #ffd700;
-        font-size: 1.5em;
-        font-weight: 700;
-        margin: 10px 0 5px;
-        text-shadow: 0 2px 10px rgba(0,0,0,0.3);
-    }
-    .temple-trust {
-        color: #ffaa66;
-        font-size: 0.9em;
-        margin: 5px 0;
-    }
-    .temple-address {
-        color: #ddd;
-        font-size: 0.8em;
-        margin: 5px 0;
-    }
-    .temple-email {
-        color: #90caf9;
-        font-size: 0.75em;
-        margin: 5px 0;
-    }
-    .tamil-text {
-        color: #ffd966;
-        font-size: 1em;
-        font-weight: 600;
-        margin: 15px 0 10px;
-        animation: pulse 2s ease-in-out infinite;
-    }
-    @keyframes pulse {
-        0%,100% { opacity: 0.7; }
-        50% { opacity: 1; }
-    }
-    .login-divider {
-        height: 2px;
-        background: linear-gradient(90deg, transparent, #ffd700, #ff6b35, #ffd700, transparent);
-        margin: 20px 0;
-    }
+    .stApp { background: linear-gradient(135deg, #0f0c29 0%, #1a1a3e 30%, #302b63 60%, #4a1942 100%); }
+    .login-container { max-width: 480px; margin: 60px auto; padding: 40px 35px; background: rgba(255,255,255,0.12); backdrop-filter: blur(15px); border-radius: 30px; box-shadow: 0 20px 60px rgba(0,0,0,0.4), 0 0 40px rgba(255,107,53,0.2); border: 1px solid rgba(255,255,255,0.18); text-align: center; animation: float 6s ease-in-out infinite; }
+    @keyframes float { 0%,100% { transform: translateY(0px); } 50% { transform: translateY(-8px); } }
+    .amman-circle { position: relative; display: inline-block; margin-bottom: 15px; }
+    .amman-img { width: 160px; height: 160px; border-radius: 50%; object-fit: cover; border: 4px solid #ffd700; box-shadow: 0 0 30px rgba(255,215,0,0.5); animation: glow 3s ease-in-out infinite; }
+    @keyframes glow { 0%,100% { box-shadow: 0 0 20px rgba(255,215,0,0.4); } 50% { box-shadow: 0 0 50px rgba(255,215,0,0.8); } }
+    .temple-name { color: #ffd700; font-size: 1.5em; font-weight: 700; margin: 10px 0 5px; text-shadow: 0 2px 10px rgba(0,0,0,0.3); }
+    .temple-trust { color: #ffaa66; font-size: 0.9em; margin: 5px 0; }
+    .temple-address { color: #ddd; font-size: 0.8em; margin: 5px 0; }
+    .temple-email { color: #90caf9; font-size: 0.75em; margin: 5px 0; }
+    .tamil-text { color: #ffd966; font-size: 1em; font-weight: 600; margin: 15px 0 10px; animation: pulse 2s ease-in-out infinite; }
+    @keyframes pulse { 0%,100% { opacity: 0.7; } 50% { opacity: 1; } }
+    .login-divider { height: 2px; background: linear-gradient(90deg, transparent, #ffd700, #ff6b35, #ffd700, transparent); margin: 20px 0; }
     </style>
     """, unsafe_allow_html=True)
-    
     col1, col2, col3 = st.columns([1,2,1])
     with col2:
         st.markdown('<div class="login-container">', unsafe_allow_html=True)
         st.markdown(f'''
-        <div class="amman-circle">
-            <img src="{amman_img}" class="amman-img">
-        </div>
+        <div class="amman-circle"><img src="{amman_img}" class="amman-img"></div>
         <div class="temple-name">🛕 {TEMPLE_NAME}</div>
         <div class="temple-trust">{TEMPLE_TRUST}</div>
         <div class="temple-address">📍 {TEMPLE_ADDRESS}</div>
@@ -418,7 +405,6 @@ def login_page():
         <div class="tamil-text">🙏 {TEMPLE_TAMIL} 🙏</div>
         <div class="login-divider"></div>
         ''', unsafe_allow_html=True)
-        
         with st.form("login_form"):
             username = st.text_input("👤 Username", placeholder="Enter username")
             password = st.text_input("🔑 Password", type="password", placeholder="Enter password")
@@ -444,7 +430,7 @@ def login_page():
         st.markdown('</div>', unsafe_allow_html=True)
 
 # ============================================================
-# COLORFUL HEADER & SIDEBAR
+# HEADER & SIDEBAR (unchanged)
 # ============================================================
 def render_header():
     amman_img = get_amman_image()
@@ -467,22 +453,14 @@ def render_header():
 
 def render_sidebar():
     with st.sidebar:
-        st.markdown("""
-        <div style='text-align:center; background: linear-gradient(135deg, #667eea, #764ba2); padding: 15px; border-radius: 15px; margin-bottom: 10px;'>
-            <h2 style='color: white; margin: 0;'>🛕 Temple MS</h2>
-        </div>
-        """, unsafe_allow_html=True)
-        
+        st.markdown("<div style='text-align:center; background: linear-gradient(135deg, #667eea, #764ba2); padding: 15px; border-radius: 15px; margin-bottom: 10px;'><h2 style='color: white; margin: 0;'>🛕 Temple MS</h2></div>", unsafe_allow_html=True)
         st.markdown(f"""
         <div style='background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); padding: 12px; border-radius: 10px; text-align: center; margin: 10px 0;'>
             <p style='color: #1a1a2e; margin: 0; font-weight: bold;'>👤 {st.session_state.get('username','Guest')}</p>
             <p style='color: #1a1a2e; margin: 5px 0 0 0; font-size: 12px; font-weight: 600;'>{st.session_state.get('role','user')}</p>
         </div>
         """, unsafe_allow_html=True)
-        
         st.markdown("---")
-        
-        # Colorful menu buttons
         menu_style = """
         <style>
         div[data-testid="stSidebar"] .stButton > button {
@@ -502,7 +480,6 @@ def render_sidebar():
         </style>
         """
         st.markdown(menu_style, unsafe_allow_html=True)
-        
         pages = {
             "Dashboard":"🏠","Devotee Management":"👥","Billing System":"🧾",
             "Pooja Management":"🙏","Expense Tracking":"💰","Donations":"🎁",
@@ -514,7 +491,6 @@ def render_sidebar():
             if st.button(f"{icon} {page}", key=page, use_container_width=True):
                 st.session_state.current_page = page
                 st.rerun()
-        
         st.markdown("---")
         if st.button("🚪 Logout", use_container_width=True):
             for k in ['logged_in','username','role','user_id','current_page']:
@@ -522,7 +498,7 @@ def render_sidebar():
             st.rerun()
 
 # ============================================================
-# DASHBOARD
+# DASHBOARD (unchanged)
 # ============================================================
 def dashboard_page():
     render_header()
@@ -535,39 +511,22 @@ def dashboard_page():
     elif period=="This Month": s=today.replace(day=1); e=today
     else: s=today.replace(month=1,day=1); e=today
     summary = get_financial_summary(s,e)
-    
-    # Colorful metric cards
     st.markdown("""
     <style>
-    .metric-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 15px;
-        border-radius: 15px;
-        text-align: center;
-        color: white;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-    }
+    .metric-card { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 15px; border-radius: 15px; text-align: center; color: white; box-shadow: 0 4px 15px rgba(0,0,0,0.2); }
     </style>
     """, unsafe_allow_html=True)
-    
     c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        st.markdown(f'<div class="metric-card"><h3>💰 Income</h3><h2>{TEMPLE_CONFIG["currency"]}{summary["income"]:,.2f}</h2></div>', unsafe_allow_html=True)
-    with c2:
-        st.markdown(f'<div class="metric-card"><h3>💸 Expenses</h3><h2>{TEMPLE_CONFIG["currency"]}{summary["expenses"]:,.2f}</h2></div>', unsafe_allow_html=True)
-    with c3:
-        st.markdown(f'<div class="metric-card"><h3>🎁 Donations</h3><h2>{TEMPLE_CONFIG["currency"]}{summary["donations"]:,.2f}</h2></div>', unsafe_allow_html=True)
-    with c4:
-        st.markdown(f'<div class="metric-card"><h3>💎 Balance</h3><h2>{TEMPLE_CONFIG["currency"]}{summary["balance"]:,.2f}</h2></div>', unsafe_allow_html=True)
-    
+    with c1: st.markdown(f'<div class="metric-card"><h3>💰 Income</h3><h2>{TEMPLE_CONFIG["currency"]}{summary["income"]:,.2f}</h2></div>', unsafe_allow_html=True)
+    with c2: st.markdown(f'<div class="metric-card"><h3>💸 Expenses</h3><h2>{TEMPLE_CONFIG["currency"]}{summary["expenses"]:,.2f}</h2></div>', unsafe_allow_html=True)
+    with c3: st.markdown(f'<div class="metric-card"><h3>🎁 Donations</h3><h2>{TEMPLE_CONFIG["currency"]}{summary["donations"]:,.2f}</h2></div>', unsafe_allow_html=True)
+    with c4: st.markdown(f'<div class="metric-card"><h3>💎 Balance</h3><h2>{TEMPLE_CONFIG["currency"]}{summary["balance"]:,.2f}</h2></div>', unsafe_allow_html=True)
     st.markdown("---")
-    # News ticker
     try:
         news = supabase.table('news_ticker').select('message').eq('is_active',True).order('priority', desc=True).execute()
         if news.data:
             st.markdown(f"<div style='background: linear-gradient(90deg, #ffecd2 0%, #fcb69f 100%); padding: 12px; border-radius: 10px;'><marquee behavior='scroll' direction='left'>{' | '.join([n['message'] for n in news.data])}</marquee></div>", unsafe_allow_html=True)
     except: pass
-    
     colA, colB = st.columns(2)
     with colA:
         st.subheader("🎂 Today's Birthdays")
@@ -586,26 +545,25 @@ def dashboard_page():
         except: pass
 
 # ============================================================
-# DEVOTEE MANAGEMENT (with Tamil Natchathiram & Family Members)
+# DEVOTEE MANAGEMENT (with date range for wedding)
 # ============================================================
 def devotee_management_page():
     render_header()
     tab1, tab2, tab3, tab4 = st.tabs(["➕ Register","👨‍👩‍👧 Family Members","📋 View All","📤 Bulk Import"])
-    
     with tab1:
         with st.form("reg_devotee"):
             col1, col2 = st.columns(2)
             with col1:
                 name = st.text_input("Full Name *")
-                dob = st.date_input("DOB", value=date(1980,1,1))
+                dob = st.date_input("DOB", value=date(1980,1,1), min_value=MIN_DATE, max_value=MAX_DATE)
                 gender = st.selectbox("Gender", ["Male","Female","Other"])
                 mobile = st.text_input("Mobile")
                 whatsapp = st.text_input("WhatsApp No")
                 email = st.text_input("Email")
             with col2:
                 address = st.text_area("Address")
-                natchathiram = st.selectbox("Natchathiram (Star)", ["--"] + NATCHATHIRAM_TAMIL)
-                wedding = st.date_input("Wedding Day", value=None)
+                natchathiram = st.selectbox("Natchathiram (Star)", ["--"] + NATCHATHIRAM_ENGLISH)
+                wedding = st.date_input("Wedding Day", value=None, min_value=MIN_DATE, max_value=MAX_DATE)
                 occupation = st.text_input("Occupation")
                 gothram = st.text_input("Gothram")
             photo = st.file_uploader("Photo", type=['jpg','png','jpeg'])
@@ -623,14 +581,12 @@ def devotee_management_page():
                     supabase.table('devotees').insert(data).execute()
                     st.success(f"✅ {name} registered! ID: {dev_id}")
                     st.balloons()
-    
     with tab2:
         devotees = supabase.table('devotees').select('id,name,mobile_no').execute()
         if devotees.data:
             dev_opt = {f"{d['name']} - {d.get('mobile_no','')}": d['id'] for d in devotees.data}
             selected = st.selectbox("Select Devotee (Head)", list(dev_opt.keys()))
             dev_id = dev_opt[selected]
-            
             family = supabase.table('family_members').select('*').eq('devotee_id', dev_id).execute()
             if family.data:
                 st.write("**Existing Family Members:**")
@@ -640,17 +596,16 @@ def devotee_management_page():
                     if col2.button("🗑️", key=f"del_fm_{fm['id']}"):
                         supabase.table('family_members').delete().eq('id', fm['id']).execute()
                         st.rerun()
-            
             with st.form("add_family"):
                 st.subheader("Add Family Member")
                 col1, col2 = st.columns(2)
                 with col1:
                     fm_name = st.text_input("Name")
-                    fm_dob = st.date_input("DOB", value=date(2000,1,1))
+                    fm_dob = st.date_input("DOB", value=date(2000,1,1), min_value=MIN_DATE, max_value=MAX_DATE)
                     fm_relation = st.selectbox("Relation", RELATION_TYPES)
                 with col2:
-                    fm_wedding = st.date_input("Wedding Day", value=None)
-                    fm_natchathiram = st.selectbox("Natchathiram", ["--"] + NATCHATHIRAM_TAMIL)
+                    fm_wedding = st.date_input("Wedding Day", value=None, min_value=MIN_DATE, max_value=MAX_DATE)
+                    fm_natchathiram = st.selectbox("Natchathiram", ["--"] + NATCHATHIRAM_ENGLISH)
                 if st.form_submit_button("Add Member"):
                     if fm_name:
                         supabase.table('family_members').insert({
@@ -662,7 +617,6 @@ def devotee_management_page():
                         st.rerun()
         else:
             st.warning("No devotees found. Register a devotee first.")
-    
     with tab3:
         search = st.text_input("🔍 Search by name/mobile/address")
         query = supabase.table('devotees').select('*').order('created_at', desc=True)
@@ -690,10 +644,9 @@ def devotee_management_page():
                     supabase.table('devotee_yearly_pooja').delete().eq('devotee_id', d['id']).execute()
                     supabase.table('devotees').delete().eq('id', d['id']).execute()
                     st.rerun()
-    
     with tab4:
         st.markdown("Download template, fill, and upload.")
-        template = pd.DataFrame([["Sample","1980-01-01","Male","9876543210","email@ex.com","Address","அஸ்வினி","2005-05-10","Business","Vishwamitra"]],
+        template = pd.DataFrame([["Sample","1980-01-01","Male","9876543210","email@ex.com","Address","Ashwini","2005-05-10","Business","Vishwamitra"]],
                                 columns=["Name","DOB","Gender","Mobile","Email","Address","Natchathiram","WeddingDay","Occupation","Gothram"])
         csv = template.to_csv(index=False).encode()
         st.download_button("📥 Template", csv, "devotee_template.csv")
@@ -717,12 +670,11 @@ def devotee_management_page():
                 st.success(f"Imported {success} devotees")
 
 # ============================================================
-# BILLING SYSTEM (with search, WhatsApp, PDF, Delete)
+# BILLING SYSTEM (unchanged)
 # ============================================================
 def billing_page():
     render_header()
     tab1, tab2 = st.tabs(["🧾 New Bill", "📋 Bill History"])
-    
     with tab1:
         col1, col2 = st.columns(2)
         with col1:
@@ -773,7 +725,6 @@ def billing_page():
                 dev_name = guest_name
                 dev_mobile = guest_mobile
                 dev_address = guest_address
-        
         if st.button("Generate Bill", type="primary"):
             if dev_type=="Guest" and not guest_name:
                 st.error("Enter guest name")
@@ -795,8 +746,6 @@ def billing_page():
                 supabase.table('bills').insert(data).execute()
                 st.success(f"Bill generated: {bill_no}")
                 st.balloons()
-                
-                # Display receipt
                 st.markdown(f"""
                 <div style='border:2px solid #667eea; padding:20px; border-radius:10px; background:white; margin:10px 0;'>
                     <h3 style='text-align:center'>{TEMPLE_NAME}</h3>
@@ -812,7 +761,6 @@ def billing_page():
                     <hr><p style='text-align:center'>🙏 Thank you! {TEMPLE_TAMIL} 🙏</p>
                 </div>
                 """, unsafe_allow_html=True)
-                
                 colA, colB = st.columns(2)
                 with colA:
                     if PDF_AVAILABLE:
@@ -824,7 +772,6 @@ def billing_page():
                     if wa_num:
                         wa_msg = build_bill_whatsapp_message(bill_no, bill_date_str, dev_name, pooja, amount, manual_bill, book_no)
                         st.markdown(f'<a href="{make_whatsapp_link(wa_num, wa_msg)}" target="_blank" style="display:inline-block; background:#25D366; color:white; padding:8px 20px; border-radius:10px; text-decoration:none;">📲 Send via WhatsApp</a>', unsafe_allow_html=True)
-    
     with tab2:
         st.subheader("Bill History with Delete Option")
         from_date = st.date_input("From", date.today()-timedelta(30))
@@ -855,7 +802,7 @@ def billing_page():
             st.info("No bills found")
 
 # ============================================================
-# POOJA MANAGEMENT
+# POOJA MANAGEMENT (unchanged)
 # ============================================================
 def pooja_management_page():
     render_header()
@@ -944,7 +891,7 @@ def pooja_management_page():
             st.warning("No devotees found")
 
 # ============================================================
-# EXPENSE TRACKING
+# EXPENSE TRACKING (unchanged)
 # ============================================================
 def expense_page():
     render_header()
@@ -985,7 +932,7 @@ def expense_page():
             st.info("No expenses")
 
 # ============================================================
-# DONATIONS
+# DONATIONS (unchanged)
 # ============================================================
 def donations_page():
     render_header()
@@ -1028,13 +975,12 @@ def donations_page():
             st.info("No donations")
 
 # ============================================================
-# SAMAYA VAKUPPU (Bond Management)
+# SAMAYA VAKUPPU (unchanged)
 # ============================================================
 def samaya_vakuppu_page():
     render_header()
     st.markdown("## 📚 Samaya Vakuppu - Bond Management")
     tab1, tab2 = st.tabs(["➕ Register Bond", "📋 Bond List"])
-    
     with tab1:
         with st.form("samaya_bond"):
             col1, col2 = st.columns(2)
@@ -1048,7 +994,6 @@ def samaya_vakuppu_page():
             address = st.text_area("Address")
             bond_scan = st.file_uploader("Upload Bond Scan Copy", type=['pdf','jpg','png','jpeg'])
             student_photo = st.file_uploader("Student Photo", type=['jpg','png','jpeg'])
-            
             if st.form_submit_button("Register Bond"):
                 if student_name and father_name and bond_no:
                     bond_id = generate_unique_id('SAM')
@@ -1063,7 +1008,6 @@ def samaya_vakuppu_page():
                     supabase.table('samaya_vakuppu').insert(data).execute()
                     st.success(f"Bond registered! ID: {bond_id}")
                     st.balloons()
-    
     with tab2:
         bonds = supabase.table('samaya_vakuppu').select('*').order('created_at', desc=True).execute()
         if bonds.data:
@@ -1091,13 +1035,12 @@ def samaya_vakuppu_page():
             st.info("No bonds registered")
 
 # ============================================================
-# THIRUMANA MANDAPAM (Wedding Hall Bond)
+# THIRUMANA MANDAPAM (unchanged)
 # ============================================================
 def thirumana_mandapam_page():
     render_header()
     st.markdown("## 💒 Thirumana Mandapam - Bond Management")
     tab1, tab2 = st.tabs(["➕ Register Bond", "📋 Bond List"])
-    
     with tab1:
         with st.form("thirumana_bond"):
             col1, col2 = st.columns(2)
@@ -1110,7 +1053,6 @@ def thirumana_mandapam_page():
                 issued_by = st.text_input("Issued By")
             bond_scan = st.file_uploader("Upload Bond Scan Copy", type=['pdf','jpg','png','jpeg'])
             photo = st.file_uploader("Photo", type=['jpg','png','jpeg'])
-            
             if st.form_submit_button("Register Bond"):
                 if name and bond_no:
                     bond_id = generate_unique_id('THI')
@@ -1124,7 +1066,6 @@ def thirumana_mandapam_page():
                     supabase.table('thirumana_mandapam').insert(data).execute()
                     st.success(f"Bond registered! ID: {bond_id}")
                     st.balloons()
-    
     with tab2:
         bonds = supabase.table('thirumana_mandapam').select('*').order('created_at', desc=True).execute()
         if bonds.data:
@@ -1151,11 +1092,11 @@ def thirumana_mandapam_page():
             st.info("No bonds registered")
 
 # ============================================================
-# ASSET MANAGEMENT
+# ASSET MANAGEMENT (with barcode generation)
 # ============================================================
 def assets_page():
     render_header()
-    tab1, tab2 = st.tabs(["🏷️ Add Asset","📋 List"])
+    tab1, tab2 = st.tabs(["🏷️ Add Asset", "📋 List & Barcodes"])
     with tab1:
         with st.form("add_asset"):
             col1, col2 = st.columns(2)
@@ -1166,49 +1107,68 @@ def assets_page():
                 serial = st.text_input("Serial No")
             with col2:
                 donor = st.text_input("Donor")
-                date_don = st.date_input("Donation/Purchase Date", date.today())
+                date_don = st.date_input("Donation/Purchase Date", date.today(), min_value=MIN_DATE, max_value=MAX_DATE)
                 cost = st.number_input("Cost", min_value=0.0)
                 location = st.text_input("Location")
             desc = st.text_area("Description")
             status = st.selectbox("Status", ["active","maintenance","damaged","donated"])
-            if st.form_submit_button("Add"):
+            generate_barcode = st.checkbox("Generate Barcode for this asset", value=True)
+            if st.form_submit_button("Add Asset"):
                 if tag and name:
-                    supabase.table('assets').insert({
-                        'asset_tag':tag,'asset_name':name,'category':category,'serial_no':serial,
-                        'donor_name':donor,'donation_date':date_don.isoformat(),'purchase_cost':cost,
-                        'location':location,'description':desc,'status':status
-                    }).execute()
-                    st.success("Asset added")
+                    data = {
+                        'asset_tag': tag, 'asset_name': name, 'category': category, 'serial_no': serial,
+                        'donor_name': donor, 'donation_date': date_don.isoformat(), 'purchase_cost': cost,
+                        'location': location, 'description': desc, 'status': status
+                    }
+                    if generate_barcode:
+                        barcode_img, _ = generate_barcode_image(tag)
+                        if barcode_img:
+                            data['barcode_url'] = barcode_img
+                    supabase.table('assets').insert(data).execute()
+                    st.success(f"Asset '{name}' added successfully")
                     st.rerun()
     with tab2:
-        search = st.text_input("Search")
+        search = st.text_input("Search Assets by tag/name/donor")
         query = supabase.table('assets').select('*').order('created_at', desc=True)
         if search:
             query = query.or_(f"asset_tag.ilike.%{search}%,asset_name.ilike.%{search}%,donor_name.ilike.%{search}%")
         assets = query.execute()
         if assets.data:
             for a in assets.data:
-                with st.expander(f"{a['asset_tag']} - {a['asset_name']}"):
-                    st.write(f"**Category:** {a.get('category','')}")
-                    st.write(f"**Cost:** {TEMPLE_CONFIG['currency']}{a.get('purchase_cost',0):,.2f}")
-                    st.write(f"**Donor:** {a.get('donor_name','')}")
-                    st.write(f"**Location:** {a.get('location','')}")
-                    st.write(f"**Status:** {a.get('status','')}")
-                    if st.button("Delete", key=f"del_asset_{a['id']}"):
+                with st.expander(f"🏷️ {a['asset_tag']} - {a['asset_name']}"):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.write(f"**Category:** {a.get('category','N/A')}")
+                        st.write(f"**Serial:** {a.get('serial_no','N/A')}")
+                        st.write(f"**Donor:** {a.get('donor_name','N/A')}")
+                        st.write(f"**Date:** {a.get('donation_date','N/A')}")
+                        st.write(f"**Cost:** {TEMPLE_CONFIG['currency']}{a.get('purchase_cost',0):,.2f}")
+                        st.write(f"**Location:** {a.get('location','N/A')}")
+                        st.write(f"**Status:** {a.get('status','N/A')}")
+                        st.write(f"**Description:** {a.get('description','N/A')}")
+                    with col2:
+                        # Generate/display barcode
+                        barcode_img, barcode_bytes = generate_barcode_image(a['asset_tag'])
+                        if barcode_img:
+                            st.markdown(f'<div style="text-align:center"><img src="{barcode_img}" style="max-width:200px;"></div>', unsafe_allow_html=True)
+                            if barcode_bytes:
+                                st.download_button("📥 Download Barcode PNG", data=barcode_bytes, file_name=f"barcode_{a['asset_tag']}.png", mime="image/png", key=f"bc_{a['id']}")
+                        else:
+                            st.info("Barcode could not be generated")
+                    if st.button("🗑️ Delete Asset", key=f"del_asset_{a['id']}"):
                         supabase.table('assets').delete().eq('id', a['id']).execute()
                         st.rerun()
         else:
-            st.info("No assets")
+            st.info("No assets found")
 
 # ============================================================
-# REPORTS
+# REPORTS (unchanged)
 # ============================================================
 def reports_page():
     render_header()
     report_type = st.selectbox("Report Type", ["Income Report","Financial Summary","Devotee Report","Pooja Income","Expense Report","Donation Report"])
     from_date = st.date_input("From", date.today()-timedelta(30))
     to_date = st.date_input("To", date.today())
-    
     if report_type == "Income Report":
         st.subheader("Income Report")
         bills = supabase.table('bills').select('*').gte('bill_date',from_date.isoformat()).lte('bill_date',to_date.isoformat()).execute()
@@ -1278,12 +1238,11 @@ def reports_page():
             st.dataframe(summary)
 
 # ============================================================
-# SETTINGS (with Amman Image Upload)
+# SETTINGS (unchanged)
 # ============================================================
 def settings_page():
     render_header()
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏛️ Temple Info","🖼️ Amman Image","📢 News Ticker","💸 Expense Types","👤 Profile"])
-    
     with tab1:
         with st.form("temple_info"):
             name = st.text_input("Temple Name", TEMPLE_CONFIG['name'])
@@ -1296,7 +1255,6 @@ def settings_page():
                 TEMPLE_CONFIG.update({'name':name,'trust':trust,'address':addr,'phone':phone,'email':email,'tagline':tagline})
                 st.success("Saved")
                 st.rerun()
-    
     with tab2:
         st.subheader("Upload Amman Image for Login Page & Banner")
         current_img = get_amman_image()
@@ -1313,7 +1271,6 @@ def settings_page():
             set_amman_image("")
             st.success("Reset to default. Refresh page.")
             st.rerun()
-    
     with tab3:
         with st.form("add_news"):
             msg = st.text_input("News Message")
@@ -1333,7 +1290,6 @@ def settings_page():
                 if c3.button("🗑️", key=f"del_news_{n['id']}"):
                     supabase.table('news_ticker').delete().eq('id',n['id']).execute()
                     st.rerun()
-    
     with tab4:
         with st.form("add_exp_type"):
             exp_name = st.text_input("Expense Type Name")
@@ -1350,7 +1306,6 @@ def settings_page():
                 if c2.button("Delete", key=f"del_exp_{e['id']}"):
                     supabase.table('expense_types').delete().eq('id',e['id']).execute()
                     st.rerun()
-    
     with tab5:
         user = supabase.table('users').select('*').eq('username',st.session_state.username).execute()
         if user.data:
@@ -1373,7 +1328,7 @@ def settings_page():
                     st.success("Profile updated")
 
 # ============================================================
-# USER MANAGEMENT (ADMIN ONLY)
+# USER MANAGEMENT (unchanged)
 # ============================================================
 def user_management_page():
     if st.session_state.get('role')!='admin':
