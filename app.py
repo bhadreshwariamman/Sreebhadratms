@@ -313,14 +313,6 @@ try:
 except ImportError:
     pass
 
-def sanitize_text(text):
-    """Convert text to ASCII, replacing non-ASCII chars and ₹ with Rs."""
-    if not text:
-        return ""
-    text = str(text).replace("₹", "Rs.")
-    text = text.replace("–", "-").replace("—", "-").replace("‘", "'").replace("’", "'")
-    return ''.join(c if ord(c) < 128 else ' ' for c in text)
-
 def generate_bill_pdf(bill_no, manual_bill, bill_book, bill_date, name, address, mobile, pooja_type, amount, amman_base64=None):
     if not PDF_AVAILABLE:
         return None
@@ -402,8 +394,8 @@ def generate_bill_pdf(bill_no, manual_bill, bill_book, bill_date, name, address,
         except:
             pass
     
-    return bytes(pdf.output())
-
+    # ** FIXED: Return PDF as bytes **
+    return pdf.output(dest='S').encode('latin1')
 # ============================================================
 # LOGIN PAGE
 # ============================================================
