@@ -1,5 +1,5 @@
 # app.py - Complete Temple Management System
-# with DD/MM/YYYY date format for ALL date inputs and displays
+# DD/MM/YYYY date format, Amman image in PDF, WhatsApp, Barcodes, etc.
 
 import streamlit as st
 import pandas as pd
@@ -11,9 +11,10 @@ import hashlib
 import io
 import urllib.parse
 import re
+import tempfile
+import os
 from typing import Optional, Dict, List, Any
 from supabase import create_client, Client
-import json
 
 # ============================================================
 # PAGE CONFIG
@@ -79,70 +80,37 @@ RELATION_TYPES = [
     "Daughter-in-law", "Uncle", "Aunt", "Nephew", "Niece", "Other"
 ]
 
-# Date range constants
+# Date range
 MIN_DATE = date(1950, 1, 1)
 MAX_DATE = date(2050, 12, 31)
 
 # ============================================================
-# DATE FORMATTING FUNCTIONS (DD/MM/YYYY)
+# DATE HANDLING (DD/MM/YYYY)
 # ============================================================
 def format_date_ddmmyyyy(date_obj):
-    """Convert date object to DD/MM/YYYY string"""
     if date_obj:
         return date_obj.strftime('%d/%m/%Y')
     return ""
 
 def parse_date_ddmmyyyy(date_str):
-    """Parse DD/MM/YYYY string to date object, return None if invalid"""
     if not date_str or date_str.strip() == "":
         return None
     try:
-        # Try DD/MM/YYYY
         return datetime.strptime(date_str.strip(), '%d/%m/%Y').date()
     except:
-        try:
-            # Try YYYY-MM-DD (just in case)
-            return datetime.strptime(date_str.strip(), '%Y-%m-%d').date()
-        except:
-            return None
+        return None
 
 def validate_date_ddmmyyyy(date_str):
-    """Check if string is valid DD/MM/YYYY date within range"""
     d = parse_date_ddmmyyyy(date_str)
     if d is None:
         return False
     return MIN_DATE <= d <= MAX_DATE
 
-def date_input_ddmmyyyy(label, key=None, value=None, min_date=MIN_DATE, max_date=MAX_DATE, help_text=None):
-    """Custom date input that accepts DD/MM/YYYY format"""
-    if value is None:
-        value = date.today()
-    if isinstance(value, date):
-        value = format_date_ddmmyyyy(value)
-    
-    col1, col2 = st.columns([3,1])
-    with col1:
-        date_str = st.text_input(label, value=value, key=key, help=help_text, placeholder="DD/MM/YYYY")
-    with col2:
-        if st.button("📅", key=f"cal_{key}"):
-            st.session_state[f"temp_date_{key}"] = date.today()
-            # We'll handle calendar popup via session state - but simpler: just instruct user
-            st.info("Enter date in DD/MM/YYYY format")
-    
-    if date_str:
-        if validate_date_ddmmyyyy(date_str):
-            return parse_date_ddmmyyyy(date_str)
-        else:
-            st.error(f"Invalid date. Use DD/MM/YYYY format and date between {format_date_ddmmyyyy(min_date)} and {format_date_ddmmyyyy(max_date)}")
-            return None
-    return None
-
-# For backward compatibility, we also keep a function to convert date to DB format
 def date_to_db(date_obj):
     return date_obj.isoformat() if date_obj else None
 
 # ============================================================
-# BARCODE GENERATION (for assets)
+# BARCODE GENERATION
 # ============================================================
 BARCODE_AVAILABLE = False
 try:
@@ -160,7 +128,6 @@ except ImportError:
     pass
 
 def generate_barcode_image(data_str, barcode_type='code128'):
-    """Generate barcode image and return base64 string and raw bytes"""
     if BARCODE_AVAILABLE:
         try:
             barcode_class = barcode.get_barcode_class(barcode_type)
@@ -187,7 +154,6 @@ def generate_barcode_image(data_str, barcode_type='code128'):
             return img_base64, img_bytes
         except:
             pass
-    # Fallback: simple text barcode simulation
     fallback_svg = f'<svg width="200" height="60"><rect width="200" height="60" fill="white"/><text x="100" y="35" text-anchor="middle" font-family="monospace">{data_str}</text></svg>'
     img_base64 = "data:image/svg+xml;base64," + base64.b64encode(fallback_svg.encode()).decode()
     return img_base64, None
@@ -219,7 +185,7 @@ def create_default_admin():
                 'email': 'admin@temple.com'
             }
             supabase.table('users').insert(admin_data).execute()
-    except Exception as e:
+    except:
         pass
 
 def get_temple_setting(key: str) -> str:
@@ -245,7 +211,7 @@ def get_amman_image():
     img = get_temple_setting('amman_image')
     if img and img.startswith('data:image'):
         return img
-    # Default animated Amman SVG with rays
+    # Default animated Amman SVG
     default_svg = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300" width="200" height="200">
     <defs>
         <radialGradient id="glow" cx="50%" cy="50%" r="50%">
@@ -300,6 +266,29 @@ def get_amman_image():
 
 def set_amman_image(base64_img):
     set_temple_setting('amman_image', base64_img)
+
+def save_base64_image_to_temp(base64_str):
+    if not base64_str:
+        return None
+    try:
+        if ',' in base64_str:
+            header, data = base64_str.split(',', 1)
+            if 'png' in header:
+                ext = '.png'
+            elif 'jpeg' in header or 'jpg' in header:
+                ext = '.jpg'
+            else:
+                ext = '.png'
+        else:
+            data = base64_str
+            ext = '.png'
+        img_data = base64.b64decode(data)
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
+        tmp.write(img_data)
+        tmp.close()
+        return tmp.name
+    except:
+        return None
 
 def get_todays_birthdays():
     if not supabase: return []
@@ -376,7 +365,7 @@ def build_bill_whatsapp_message(bill_no, bill_date, name, pooja, amount, manual_
     )
 
 # ============================================================
-# PDF GENERATION
+# PDF GENERATION WITH AMMAN IMAGE
 # ============================================================
 PDF_AVAILABLE = False
 try:
@@ -385,11 +374,25 @@ try:
 except:
     pass
 
-def generate_bill_pdf(bill_no, manual_bill, bill_book, bill_date, name, address, mobile, pooja_type, amount):
+def generate_bill_pdf(bill_no, manual_bill, bill_book, bill_date, name, address, mobile, pooja_type, amount, amman_base64=None):
     if not PDF_AVAILABLE:
         return None
+    
+    amman_img_path = None
+    if amman_base64:
+        amman_img_path = save_base64_image_to_temp(amman_base64)
+    
     pdf = FPDF()
     pdf.add_page()
+    
+    # Amman image top left and top right
+    if amman_img_path and os.path.exists(amman_img_path):
+        try:
+            pdf.image(amman_img_path, x=10, y=8, w=20)
+            pdf.image(amman_img_path, x=180, y=8, w=20)
+        except:
+            pass
+    
     pdf.set_font('Helvetica', 'B', 16)
     pdf.cell(0, 10, TEMPLE_NAME, 0, 1, 'C')
     pdf.set_font('Helvetica', '', 10)
@@ -421,10 +424,17 @@ def generate_bill_pdf(bill_no, manual_bill, bill_book, bill_date, name, address,
     pdf.set_font('Helvetica', 'I', 8)
     pdf.cell(0, 6, "Thank you for your contribution! May Goddess Bhadreshwari bless you!", 0, 1, 'C')
     pdf.cell(0, 6, TEMPLE_TAMIL, 0, 1, 'C')
+    
+    if amman_img_path and os.path.exists(amman_img_path):
+        try:
+            os.unlink(amman_img_path)
+        except:
+            pass
+    
     return bytes(pdf.output())
 
 # ============================================================
-# BEAUTIFUL LOGIN PAGE (unchanged)
+# LOGIN PAGE (with Amman image)
 # ============================================================
 def login_page():
     if not supabase:
@@ -603,7 +613,7 @@ def dashboard_page():
         except: pass
 
 # ============================================================
-# DEVOTEE MANAGEMENT (with DD/MM/YYYY date inputs)
+# DEVOTEE MANAGEMENT (DD/MM/YYYY, updated Natchathiram)
 # ============================================================
 def devotee_management_page():
     render_header()
@@ -746,16 +756,17 @@ def devotee_management_page():
                             'occupation': str(row['Occupation']), 'gothram': str(row['Gothram'])
                         }).execute()
                         success+=1
-                    except Exception as e:
-                        st.warning(f"Error in row: {e}")
+                    except:
+                        pass
                 st.success(f"Imported {success} devotees")
 
 # ============================================================
-# BILLING SYSTEM (with DD/MM/YYYY)
+# BILLING SYSTEM (PDF with Amman image, WhatsApp)
 # ============================================================
 def billing_page():
     render_header()
     tab1, tab2 = st.tabs(["🧾 New Bill", "📋 Bill History"])
+    amman_img = get_amman_image()
     
     with tab1:
         col1, col2 = st.columns(2)
@@ -851,7 +862,7 @@ def billing_page():
                     colA, colB = st.columns(2)
                     with colA:
                         if PDF_AVAILABLE:
-                            pdf = generate_bill_pdf(bill_no, manual_bill, book_no, bill_date_display, dev_name, dev_address, dev_mobile, pooja, amount)
+                            pdf = generate_bill_pdf(bill_no, manual_bill, book_no, bill_date_display, dev_name, dev_address, dev_mobile, pooja, amount, amman_base64=amman_img)
                             if pdf:
                                 st.download_button("📥 Download PDF", data=pdf, file_name=f"Bill_{bill_no}.pdf", mime="application/pdf")
                     with colB:
@@ -887,7 +898,7 @@ def billing_page():
                             pdf = generate_bill_pdf(bill['bill_no'], bill.get('manual_bill_no',''), bill.get('bill_book_no',''), 
                                                    bill_display_date,
                                                    bill.get('guest_name',''), bill.get('guest_address',''), bill.get('guest_mobile',''),
-                                                   bill['pooja_type'], bill['amount'])
+                                                   bill['pooja_type'], bill['amount'], amman_base64=amman_img)
                             if pdf:
                                 st.download_button("📥 PDF", pdf, f"Bill_{bill['bill_no']}.pdf", mime="application/pdf", key=f"pdf_{bill['id']}")
             else:
@@ -896,7 +907,7 @@ def billing_page():
             st.warning("Invalid date range")
 
 # ============================================================
-# POOJA MANAGEMENT (with DD/MM/YYYY)
+# POOJA MANAGEMENT (DD/MM/YYYY)
 # ============================================================
 def pooja_management_page():
     render_header()
@@ -998,7 +1009,7 @@ def pooja_management_page():
             st.warning("No devotees found")
 
 # ============================================================
-# EXPENSE TRACKING (with DD/MM/YYYY)
+# EXPENSE TRACKING (DD/MM/YYYY)
 # ============================================================
 def expense_page():
     render_header()
@@ -1048,7 +1059,7 @@ def expense_page():
             st.warning("Invalid date range")
 
 # ============================================================
-# DONATIONS (with DD/MM/YYYY)
+# DONATIONS (DD/MM/YYYY)
 # ============================================================
 def donations_page():
     render_header()
@@ -1100,7 +1111,7 @@ def donations_page():
             st.warning("Invalid date range")
 
 # ============================================================
-# SAMAYA VAKUPPU (with DD/MM/YYYY)
+# SAMAYA VAKUPPU (DD/MM/YYYY)
 # ============================================================
 def samaya_vakuppu_page():
     render_header()
@@ -1165,7 +1176,7 @@ def samaya_vakuppu_page():
             st.info("No bonds registered")
 
 # ============================================================
-# THIRUMANA MANDAPAM (with DD/MM/YYYY)
+# THIRUMANA MANDAPAM (DD/MM/YYYY)
 # ============================================================
 def thirumana_mandapam_page():
     render_header()
@@ -1227,7 +1238,7 @@ def thirumana_mandapam_page():
             st.info("No bonds registered")
 
 # ============================================================
-# ASSET MANAGEMENT (with DD/MM/YYYY)
+# ASSET MANAGEMENT (with barcode, DD/MM/YYYY)
 # ============================================================
 def assets_page():
     render_header()
@@ -1300,7 +1311,7 @@ def assets_page():
             st.info("No assets found")
 
 # ============================================================
-# REPORTS (with DD/MM/YYYY)
+# REPORTS (DD/MM/YYYY)
 # ============================================================
 def reports_page():
     render_header()
@@ -1309,11 +1320,9 @@ def reports_page():
     to_date_str = st.text_input("To Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()), placeholder="DD/MM/YYYY")
     from_date = parse_date_ddmmyyyy(from_date_str) if from_date_str else None
     to_date = parse_date_ddmmyyyy(to_date_str) if to_date_str else None
-    
     if not from_date or not to_date:
         st.warning("Please enter valid date range")
         return
-    
     if report_type == "Income Report":
         st.subheader("Income Report")
         bills = supabase.table('bills').select('*').gte('bill_date', date_to_db(from_date)).lte('bill_date', date_to_db(to_date)).execute()
@@ -1383,7 +1392,7 @@ def reports_page():
             st.dataframe(summary)
 
 # ============================================================
-# SETTINGS (unchanged)
+# SETTINGS (with Amman image upload)
 # ============================================================
 def settings_page():
     render_header()
@@ -1473,7 +1482,7 @@ def settings_page():
                     st.success("Profile updated")
 
 # ============================================================
-# USER MANAGEMENT (unchanged)
+# USER MANAGEMENT (admin only)
 # ============================================================
 def user_management_page():
     if st.session_state.get('role')!='admin':
