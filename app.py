@@ -762,138 +762,160 @@ def devotee_management_page():
                     st.rerun()
 
     # ==================== TAB 4: BULK IMPORT ====================
-    with tab4:
-        st.markdown("### 📤 Bulk Import Devotees")
-        st.markdown("Download the template, fill it, and upload the file.")
+   with tab4:
+    st.markdown("### 📤 Bulk Import Devotees")
+    st.markdown("Download the template, fill it, and upload the file.")
 
-        # Template columns (matching your CSV)
-        template_columns = [
-            "Name", "DOB (DD-MM-YYYY)", "Gender", "Mobile", "Email",
-            "Address", "Natchathiram", "Wedding Day", "Occupation", "Gothram"
-        ]
-        sample_data = [[
-            "Sample Name", "01-01-1980", "Male", "9876543210", "sample@email.com",
-            "Sample Address", "Aswini", "10-05-2005", "Business", "Vishwamitra"
-        ]]
-        template_df = pd.DataFrame(sample_data, columns=template_columns)
-        csv = template_df.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            "📥 Download CSV Template",
-            data=csv,
-            file_name="devotee_bulk_template.csv",
-            mime="text/csv",
-            use_container_width=True
-        )
+    # Template columns (matching your CSV)
+    template_columns = [
+        "Name", "DOB (DD-MM-YYYY)", "Gender", "Mobile", "Email",
+        "Address", "Natchathiram", "Wedding Day", "Occupation", "Gothram"
+    ]
+    sample_data = [[
+        "Sample Name", "01-01-1980", "Male", "9876543210", "sample@email.com",
+        "Sample Address", "Aswini", "10-05-2005", "Business", "Vishwamitra"
+    ]]
+    template_df = pd.DataFrame(sample_data, columns=template_columns)
+    csv = template_df.to_csv(index=False).encode('utf-8')
+    st.download_button(
+        "📥 Download CSV Template",
+        data=csv,
+        file_name="devotee_bulk_template.csv",
+        mime="text/csv",
+        use_container_width=True
+    )
 
-        uploaded_file = st.file_uploader("Upload CSV/Excel File", type=['csv', 'xlsx', 'xls'])
-        if uploaded_file:
-            try:
-                # Read the file
-                if uploaded_file.name.endswith('.csv'):
-                    df = pd.read_csv(uploaded_file)
-                else:
-                    df = pd.read_excel(uploaded_file)
+    uploaded_file = st.file_uploader("Upload CSV/Excel File", type=['csv', 'xlsx', 'xls'])
+    if uploaded_file:
+        try:
+            # Read the file
+            if uploaded_file.name.endswith('.csv'):
+                df = pd.read_csv(uploaded_file)
+            else:
+                df = pd.read_excel(uploaded_file)
 
-                # Clean column names
-                df.columns = [col.strip() for col in df.columns]
+            # Clean column names
+            df.columns = [col.strip() for col in df.columns]
 
-                st.subheader("Preview of uploaded data")
-                st.dataframe(df.head(10), use_container_width=True)
+            st.subheader("Preview of uploaded data")
+            st.dataframe(df.head(10), use_container_width=True)
 
-                if st.button("🚀 Start Import", type="primary", use_container_width=True):
-                    success_count = 0
-                    error_list = []
+            if st.button("🚀 Start Import", type="primary", use_container_width=True):
+                success_count = 0
+                error_list = []
 
-                    # Flexible date parser (handles DD-MM-YYYY and DD/MM/YYYY)
-                    def parse_flexible_date(date_str):
-                        if not date_str or str(date_str).lower() in ['nan', 'none', '']:
-                            return None
-                        date_str = str(date_str).strip()
-                        # Replace hyphens with slashes
-                        if '-' in date_str:
-                            date_str = date_str.replace('-', '/')
-                        try:
-                            return datetime.strptime(date_str, '%d/%m/%Y').date()
-                        except:
-                            return None
+                # Enhanced date parser (handles multiple formats)
+                def parse_flexible_date(date_str):
+                    if not date_str or str(date_str).lower() in ['nan', 'none', '']:
+                        return None
+                    date_str = str(date_str).strip()
+                    # Remove time part if present (e.g., "1960-05-05 00:00:00" -> "1960-05-05")
+                    if ' ' in date_str:
+                        date_str = date_str.split()[0]
+                    # Try YYYY-MM-DD first (most common in exports)
+                    try:
+                        return datetime.strptime(date_str, '%Y-%m-%d').date()
+                    except:
+                        pass
+                    # Replace hyphens with slashes for DD-MM-YYYY -> DD/MM/YYYY
+                    if '-' in date_str:
+                        date_str = date_str.replace('-', '/')
+                    # Try DD/MM/YYYY
+                    try:
+                        return datetime.strptime(date_str, '%d/%m/%Y').date()
+                    except:
+                        return None
 
-                    for idx, row in df.iterrows():
-                        try:
-                            name = str(row.get('Name', '')).strip()
-                            if not name or name.lower() == 'nan':
-                                error_list.append(f"Row {idx+2}: Name is required")
-                                continue
+                for idx, row in df.iterrows():
+                    try:
+                        name = str(row.get('Name', '')).strip()
+                        if not name or name.lower() == 'nan':
+                            error_list.append(f"Row {idx+2}: Name is required")
+                            continue
 
-                            # Date of Birth
-                            dob_str = str(row.get('DOB (DD-MM-YYYY)', '')).strip()
-                            dob = parse_flexible_date(dob_str)
-                            if dob_str and dob_str.lower() not in ['nan', 'none', ''] and not dob:
-                                error_list.append(f"Row {idx+2}: Invalid DOB format (use DD-MM-YYYY or DD/MM/YYYY): {dob_str}")
-                                continue
+                        # Date of Birth (column might be 'DOB (DD-MM-YYYY)' or 'DOB')
+                        dob_col = None
+                        for col in ['DOB (DD-MM-YYYY)', 'DOB', 'Date of Birth']:
+                            if col in df.columns:
+                                dob_col = col
+                                break
+                        if dob_col is None:
+                            error_list.append(f"Row {idx+2}: Missing DOB column")
+                            continue
+                        dob_str = str(row.get(dob_col, '')).strip()
+                        dob = parse_flexible_date(dob_str)
+                        if dob_str and dob_str.lower() not in ['nan', 'none', ''] and not dob:
+                            error_list.append(f"Row {idx+2}: Invalid DOB format: {dob_str}")
+                            continue
 
-                            # Wedding Day
-                            wedding_str = str(row.get('Wedding Day', '')).strip()
-                            wedding = parse_flexible_date(wedding_str)
-                            if wedding_str and wedding_str.lower() not in ['nan', 'none', ''] and not wedding:
-                                error_list.append(f"Row {idx+2}: Invalid Wedding date format: {wedding_str}")
-                                continue
+                        # Wedding Day (column might be 'Wedding Day' or 'WeddingDay')
+                        wedding_col = None
+                        for col in ['Wedding Day', 'WeddingDay', 'Wedding']:
+                            if col in df.columns:
+                                wedding_col = col
+                                break
+                        wedding_str = str(row.get(wedding_col, '')).strip() if wedding_col else ''
+                        wedding = parse_flexible_date(wedding_str) if wedding_str else None
+                        if wedding_str and wedding_str.lower() not in ['nan', 'none', ''] and not wedding:
+                            error_list.append(f"Row {idx+2}: Invalid Wedding date format: {wedding_str}")
+                            continue
 
-                            # Other fields
-                            gender = str(row.get('Gender', '')).strip() if pd.notna(row.get('Gender')) else ''
-                            mobile = str(row.get('Mobile', '')).strip() if pd.notna(row.get('Mobile')) else ''
-                            email = str(row.get('Email', '')).strip() if pd.notna(row.get('Email')) else ''
-                            address = str(row.get('Address', '')).strip() if pd.notna(row.get('Address')) else ''
-                            natchathiram = str(row.get('Natchathiram', '')).strip() if pd.notna(row.get('Natchathiram')) else ''
-                            occupation = str(row.get('Occupation', '')).strip() if pd.notna(row.get('Occupation')) else ''
-                            gothram = str(row.get('Gothram', '')).strip() if pd.notna(row.get('Gothram')) else ''
+                        # Other fields
+                        gender = str(row.get('Gender', '')).strip() if pd.notna(row.get('Gender')) else ''
+                        mobile = str(row.get('Mobile', '')).strip() if pd.notna(row.get('Mobile')) else ''
+                        email = str(row.get('Email', '')).strip() if pd.notna(row.get('Email')) else ''
+                        address = str(row.get('Address', '')).strip() if pd.notna(row.get('Address')) else ''
+                        natchathiram = str(row.get('Natchathiram', '')).strip() if pd.notna(row.get('Natchathiram')) else ''
+                        occupation = str(row.get('Occupation', '')).strip() if pd.notna(row.get('Occupation')) else ''
+                        gothram = str(row.get('Gothram', '')).strip() if pd.notna(row.get('Gothram')) else ''
 
-                            # Generate unique ID
-                            devotee_id = generate_unique_id('DEV')
+                        # Generate unique ID
+                        devotee_id = generate_unique_id('DEV')
 
-                            # Insert into Supabase
-                            data = {
-                                'devotee_id': devotee_id,
-                                'name': name,
-                                'dob': date_to_db(dob) if dob else None,
-                                'gender': gender if gender else None,
-                                'mobile_no': mobile if mobile else None,
-                                'whatsapp_no': mobile,  # fallback to mobile
-                                'email': email if email else None,
-                                'address': address if address else None,
-                                'natchathiram': natchathiram if natchathiram else None,
-                                'wedding_day': date_to_db(wedding) if wedding else None,
-                                'occupation': occupation if occupation else None,
-                                'gothram': gothram if gothram else None
-                            }
-                            supabase.table('devotees').insert(data).execute()
-                            success_count += 1
+                        # Insert into Supabase
+                        data = {
+                            'devotee_id': devotee_id,
+                            'name': name,
+                            'dob': date_to_db(dob) if dob else None,
+                            'gender': gender if gender else None,
+                            'mobile_no': mobile if mobile else None,
+                            'whatsapp_no': mobile,  # fallback to mobile
+                            'email': email if email else None,
+                            'address': address if address else None,
+                            'natchathiram': natchathiram if natchathiram else None,
+                            'wedding_day': date_to_db(wedding) if wedding else None,
+                            'occupation': occupation if occupation else None,
+                            'gothram': gothram if gothram else None
+                        }
+                        supabase.table('devotees').insert(data).execute()
+                        success_count += 1
 
-                        except Exception as e:
-                            error_list.append(f"Row {idx+2}: {str(e)}")
+                    except Exception as e:
+                        error_list.append(f"Row {idx+2}: {str(e)}")
 
-                    # Show results
-                    st.subheader("Import Results")
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.metric("✅ Successfully Imported", success_count)
-                    with col2:
-                        st.metric("❌ Errors", len(error_list))
+                # Show results
+                st.subheader("Import Results")
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("✅ Successfully Imported", success_count)
+                with col2:
+                    st.metric("❌ Errors", len(error_list))
 
-                    if error_list:
-                        with st.expander(f"View Errors ({len(error_list)})"):
-                            for err in error_list[:30]:
-                                st.error(err)
-                            if len(error_list) > 30:
-                                st.warning(f"... and {len(error_list)-30} more errors")
+                if error_list:
+                    with st.expander(f"View Errors ({len(error_list)})"):
+                        for err in error_list[:30]:
+                            st.error(err)
+                        if len(error_list) > 30:
+                            st.warning(f"... and {len(error_list)-30} more errors")
 
-                    if success_count > 0:
-                        st.success(f"🎉 Successfully added {success_count} devotees!")
-                        st.balloons()
-                        time.sleep(1)
-                        st.rerun()
+                if success_count > 0:
+                    st.success(f"🎉 Successfully added {success_count} devotees!")
+                    st.balloons()
+                    time.sleep(1)
+                    st.rerun()
 
-            except Exception as e:
-                st.error(f"Error reading file: {str(e)}")
+        except Exception as e:
+            st.error(f"Error reading file: {str(e)}")
 
 # ============================================================
 # BILLING SYSTEM (Full with PDF & WhatsApp)
