@@ -762,6 +762,7 @@ def devotee_management_page():
                     st.rerun()
 
     # ==================== TAB 4: BULK IMPORT ====================
+       # ==================== TAB 4: BULK IMPORT ====================
     with tab4:
         st.markdown("### 📤 Bulk Import Devotees")
         st.markdown("Download the template, fill it, and upload the file.")
@@ -794,37 +795,63 @@ def devotee_management_page():
                 else:
                     df = pd.read_excel(uploaded_file)
 
-                # Clean column names
+                # Clean column names (strip spaces)
                 df.columns = [col.strip() for col in df.columns]
 
                 st.subheader("Preview of uploaded data")
                 st.dataframe(df.head(10), use_container_width=True)
 
+                # Show a preview of parsed dates to help debug
+                def parse_flexible_date(date_str):
+                    """Parse various date formats to date object."""
+                    if not date_str or str(date_str).lower() in ['nan', 'none', '']:
+                        return None
+                    date_str = str(date_str).strip()
+                    # Remove time part if present (e.g., "1960-05-05 00:00:00")
+                    if ' ' in date_str:
+                        date_str = date_str.split()[0]
+                    # Try YYYY-MM-DD
+                    try:
+                        return datetime.strptime(date_str, '%Y-%m-%d').date()
+                    except:
+                        pass
+                    # Replace hyphens with slashes for DD-MM-YYYY -> DD/MM/YYYY
+                    if '-' in date_str:
+                        date_str = date_str.replace('-', '/')
+                    # Try DD/MM/YYYY
+                    try:
+                        return datetime.strptime(date_str, '%d/%m/%Y').date()
+                    except:
+                        return None
+
+                # Preview parsed dates
+                if 'DOB' in df.columns or 'DOB (DD-MM-YYYY)' in df.columns:
+                    dob_col = 'DOB (DD-MM-YYYY)' if 'DOB (DD-MM-YYYY)' in df.columns else 'DOB'
+                    st.subheader("Date Parsing Preview")
+                    preview_df = df.head(5).copy()
+                    preview_df['Parsed DOB'] = preview_df[dob_col].apply(lambda x: parse_flexible_date(x))
+                    st.dataframe(preview_df[[dob_col, 'Parsed DOB']], use_container_width=True)
+
                 if st.button("🚀 Start Import", type="primary", use_container_width=True):
                     success_count = 0
                     error_list = []
 
-                    # Enhanced date parser
-                    def parse_flexible_date(date_str):
-                        if not date_str or str(date_str).lower() in ['nan', 'none', '']:
-                            return None
-                        date_str = str(date_str).strip()
-                        # Remove time part if present
-                        if ' ' in date_str:
-                            date_str = date_str.split()[0]
-                        # Try YYYY-MM-DD
-                        try:
-                            return datetime.strptime(date_str, '%Y-%m-%d').date()
-                        except:
-                            pass
-                        # Replace hyphens with slashes for DD-MM-YYYY -> DD/MM/YYYY
-                        if '-' in date_str:
-                            date_str = date_str.replace('-', '/')
-                        # Try DD/MM/YYYY
-                        try:
-                            return datetime.strptime(date_str, '%d/%m/%Y').date()
-                        except:
-                            return None
+                    # Identify DOB column
+                    dob_col = None
+                    for col in ['DOB (DD-MM-YYYY)', 'DOB', 'Date of Birth']:
+                        if col in df.columns:
+                            dob_col = col
+                            break
+                    if dob_col is None:
+                        st.error("Could not find DOB column. Please ensure your CSV has a column named 'DOB (DD-MM-YYYY)' or 'DOB'.")
+                        st.stop()
+
+                    # Identify Wedding column
+                    wedding_col = None
+                    for col in ['Wedding Day', 'WeddingDay', 'Wedding']:
+                        if col in df.columns:
+                            wedding_col = col
+                            break
 
                     for idx, row in df.iterrows():
                         try:
@@ -833,32 +860,22 @@ def devotee_management_page():
                                 error_list.append(f"Row {idx+2}: Name is required")
                                 continue
 
-                            # Date of Birth
-                            dob_col = None
-                            for col in ['DOB (DD-MM-YYYY)', 'DOB', 'Date of Birth']:
-                                if col in df.columns:
-                                    dob_col = col
-                                    break
-                            if dob_col is None:
-                                error_list.append(f"Row {idx+2}: Missing DOB column")
-                                continue
+                            # Parse DOB
                             dob_str = str(row.get(dob_col, '')).strip()
                             dob = parse_flexible_date(dob_str)
                             if dob_str and dob_str.lower() not in ['nan', 'none', ''] and not dob:
                                 error_list.append(f"Row {idx+2}: Invalid DOB format: {dob_str}")
                                 continue
 
-                            # Wedding Day
-                            wedding_col = None
-                            for col in ['Wedding Day', 'WeddingDay', 'Wedding']:
-                                if col in df.columns:
-                                    wedding_col = col
-                                    break
-                            wedding_str = str(row.get(wedding_col, '')).strip() if wedding_col else ''
-                            wedding = parse_flexible_date(wedding_str) if wedding_str else None
-                            if wedding_str and wedding_str.lower() not in ['nan', 'none', ''] and not wedding:
-                                error_list.append(f"Row {idx+2}: Invalid Wedding date format: {wedding_str}")
-                                continue
+                            # Parse Wedding Day (if column exists)
+                            wedding = None
+                            if wedding_col:
+                                wedding_str = str(row.get(wedding_col, '')).strip()
+                                if wedding_str and wedding_str.lower() not in ['nan', 'none', '']:
+                                    wedding = parse_flexible_date(wedding_str)
+                                    if not wedding:
+                                        error_list.append(f"Row {idx+2}: Invalid Wedding date format: {wedding_str}")
+                                        continue
 
                             # Other fields
                             gender = str(row.get('Gender', '')).strip() if pd.notna(row.get('Gender')) else ''
