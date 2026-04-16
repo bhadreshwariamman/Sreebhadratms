@@ -452,30 +452,50 @@ def login_page():
     st.markdown("""
     <style>
     .stApp { background: linear-gradient(135deg, #0f0c29, #1a1a3e, #302b63, #4a1942); }
-    .login-container { max-width: 480px; margin: 60px auto; padding: 40px; background: rgba(255,255,255,0.12); backdrop-filter: blur(15px); border-radius: 30px; text-align: center; animation: float 6s ease-in-out infinite; }
+    .login-container {
+        max-width: 480px;
+        margin: 60px auto;
+        padding: 40px;
+        background: rgba(255,255,255,0.12);
+        backdrop-filter: blur(15px);
+        border-radius: 30px;
+        text-align: center;
+        animation: float 6s ease-in-out infinite;
+    }
     @keyframes float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
-    .amman-img { width: 160px; height: 160px; border-radius: 50%; border: 4px solid #ffd700; animation: glow 3s ease-in-out infinite; }
+    .amman-img {
+        width: 160px;
+        height: 160px;
+        border-radius: 50%;
+        border: 4px solid #ffd700;
+        display: block;
+        margin: 0 auto 20px auto;
+        animation: glow 3s ease-in-out infinite;
+    }
     @keyframes glow { 0%,100% { box-shadow: 0 0 20px rgba(255,215,0,0.4); } 50% { box-shadow: 0 0 50px rgba(255,215,0,0.8); } }
-    .temple-name { color: #ffd700; font-size: 1.5em; font-weight: 700; }
-    .temple-trust { color: #ffaa66; }
-    .temple-address, .temple-email { color: #ddd; }
-    .tamil-text { color: #ffd966; animation: pulse 2s infinite; }
+    .temple-name { color: #ffd700; font-size: 1.5em; font-weight: 700; margin: 10px 0 5px; text-shadow: 0 2px 10px rgba(0,0,0,0.3); text-align: center; }
+    .temple-trust { color: #ffaa66; font-size: 0.9em; margin: 5px 0; text-align: center; }
+    .temple-address { color: #ddd; font-size: 0.8em; margin: 5px 0; text-align: center; }
+    .temple-email { color: #90caf9; font-size: 0.75em; margin: 5px 0; text-align: center; }
+    .tamil-text { color: #ffd966; font-size: 1em; font-weight: 600; margin: 15px 0 10px; animation: pulse 2s infinite; text-align: center; }
     @keyframes pulse { 0%,100% { opacity: 0.7; } 50% { opacity: 1; } }
     .login-divider { height: 2px; background: linear-gradient(90deg, transparent, #ffd700, #ff6b35, #ffd700, transparent); margin: 20px 0; }
     </style>
     """, unsafe_allow_html=True)
+    
     col1, col2, col3 = st.columns([1,2,1])
     with col2:
         st.markdown('<div class="login-container">', unsafe_allow_html=True)
-        # Inside login_page, after st.markdown('<div class="login-container">', unsafe_allow_html=True)
-        st.markdown(f'<div style="text-align:center; margin-bottom:20px;"><img src="{amman_img}" class="amman-img"></div>', unsafe_allow_html=True)
+        # Centered Amman image
+        st.markdown(f'<img src="{amman_img}" class="amman-img">', unsafe_allow_html=True)
+        # Centered text content
         st.markdown(f'<div class="temple-name">🛕 {TEMPLE_NAME}</div>', unsafe_allow_html=True)
-# ... rest of the login content
         st.markdown(f'<div class="temple-trust">{TEMPLE_TRUST}</div>', unsafe_allow_html=True)
         st.markdown(f'<div class="temple-address">📍 {TEMPLE_ADDRESS}</div>', unsafe_allow_html=True)
         st.markdown(f'<div class="temple-email">✉ {TEMPLE_EMAIL} | 📞 {TEMPLE_PHONE}</div>', unsafe_allow_html=True)
         st.markdown(f'<div class="tamil-text">🙏 {TEMPLE_TAMIL} 🙏</div>', unsafe_allow_html=True)
         st.markdown('<div class="login-divider"></div>', unsafe_allow_html=True)
+        
         with st.form("login_form"):
             username = st.text_input("👤 Username")
             password = st.text_input("🔑 Password", type="password")
@@ -497,9 +517,8 @@ def login_page():
                     except Exception as e:
                         st.error(f"Error: {e}")
         st.markdown('<div class="login-divider"></div>', unsafe_allow_html=True)
-        st.markdown(f'<div style="color:#aaa;">🔑 Default: admin / admin123<br>🪔 {TEMPLE_TAMIL} 🪔</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="text-align:center; color:#aaa;">🔑 Default: admin / admin123<br>🪔 {TEMPLE_TAMIL} 🪔</div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
-
 # ============================================================
 # HEADER & SIDEBAR
 # ============================================================
