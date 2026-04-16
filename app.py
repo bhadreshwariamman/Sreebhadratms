@@ -674,14 +674,12 @@ def devotee_management_page():
 
     # ==================== TAB 2: FAMILY MEMBERS ====================
     with tab2:
-        # Select head of family
         devotees = supabase.table('devotees').select('id,name,mobile_no').execute()
         if devotees.data:
             dev_opt = {f"{d['name']} - {d.get('mobile_no', '')}": d['id'] for d in devotees.data}
             selected = st.selectbox("Select Devotee (Head of Family)", list(dev_opt.keys()))
             dev_id = dev_opt[selected]
 
-            # Show existing family members
             family = supabase.table('family_members').select('*').eq('devotee_id', dev_id).execute()
             if family.data:
                 st.markdown("**Existing Family Members:**")
@@ -695,7 +693,6 @@ def devotee_management_page():
             else:
                 st.info("No family members added yet.")
 
-            # Add new family member
             with st.form("add_family"):
                 st.subheader("Add Family Member")
                 col1, col2 = st.columns(2)
@@ -761,8 +758,7 @@ def devotee_management_page():
                     supabase.table('devotees').delete().eq('id', d['id']).execute()
                     st.rerun()
 
-    # ==================== TAB 4: BULK IMPORT ====================
-       # ==================== TAB 4: BULK IMPORT ====================
+    # ==================== TAB 4: BULK IMPORT (FIXED) ====================
     with tab4:
         st.markdown("### 📤 Bulk Import Devotees")
         st.markdown("Download the template, fill it, and upload the file.")
@@ -789,42 +785,37 @@ def devotee_management_page():
         uploaded_file = st.file_uploader("Upload CSV/Excel File", type=['csv', 'xlsx', 'xls'])
         if uploaded_file:
             try:
-                # Read the file
+                # Read file
                 if uploaded_file.name.endswith('.csv'):
                     df = pd.read_csv(uploaded_file)
                 else:
                     df = pd.read_excel(uploaded_file)
 
-                # Clean column names (strip spaces)
+                # Clean column names
                 df.columns = [col.strip() for col in df.columns]
 
                 st.subheader("Preview of uploaded data")
                 st.dataframe(df.head(10), use_container_width=True)
 
-                # Show a preview of parsed dates to help debug
+                # Flexible date parser
                 def parse_flexible_date(date_str):
-                    """Parse various date formats to date object."""
                     if not date_str or str(date_str).lower() in ['nan', 'none', '']:
                         return None
                     date_str = str(date_str).strip()
-                    # Remove time part if present (e.g., "1960-05-05 00:00:00")
                     if ' ' in date_str:
-                        date_str = date_str.split()[0]
-                    # Try YYYY-MM-DD
+                        date_str = date_str.split()[0]  # remove time
                     try:
                         return datetime.strptime(date_str, '%Y-%m-%d').date()
                     except:
                         pass
-                    # Replace hyphens with slashes for DD-MM-YYYY -> DD/MM/YYYY
                     if '-' in date_str:
                         date_str = date_str.replace('-', '/')
-                    # Try DD/MM/YYYY
                     try:
                         return datetime.strptime(date_str, '%d/%m/%Y').date()
                     except:
                         return None
 
-                # Preview parsed dates
+                # Show date parsing preview
                 if 'DOB' in df.columns or 'DOB (DD-MM-YYYY)' in df.columns:
                     dob_col = 'DOB (DD-MM-YYYY)' if 'DOB (DD-MM-YYYY)' in df.columns else 'DOB'
                     st.subheader("Date Parsing Preview")
@@ -867,7 +858,7 @@ def devotee_management_page():
                                 error_list.append(f"Row {idx+2}: Invalid DOB format: {dob_str}")
                                 continue
 
-                            # Parse Wedding Day (if column exists)
+                            # Parse Wedding
                             wedding = None
                             if wedding_col:
                                 wedding_str = str(row.get(wedding_col, '')).strip()
@@ -886,7 +877,6 @@ def devotee_management_page():
                             occupation = str(row.get('Occupation', '')).strip() if pd.notna(row.get('Occupation')) else ''
                             gothram = str(row.get('Gothram', '')).strip() if pd.notna(row.get('Gothram')) else ''
 
-                            # Generate unique ID
                             devotee_id = generate_unique_id('DEV')
 
                             # Insert into Supabase
@@ -896,7 +886,7 @@ def devotee_management_page():
                                 'dob': date_to_db(dob) if dob else None,
                                 'gender': gender if gender else None,
                                 'mobile_no': mobile if mobile else None,
-                                'whatsapp_no': mobile,  # fallback to mobile
+                                'whatsapp_no': mobile,
                                 'email': email if email else None,
                                 'address': address if address else None,
                                 'natchathiram': natchathiram if natchathiram else None,
@@ -904,8 +894,12 @@ def devotee_management_page():
                                 'occupation': occupation if occupation else None,
                                 'gothram': gothram if gothram else None
                             }
-                            supabase.table('devotees').insert(data).execute()
-                            success_count += 1
+                            # Execute insert and catch any Supabase error
+                            result = supabase.table('devotees').insert(data).execute()
+                            if result.data:
+                                success_count += 1
+                            else:
+                                error_list.append(f"Row {idx+2}: Supabase insert returned no data")
 
                         except Exception as e:
                             error_list.append(f"Row {idx+2}: {str(e)}")
@@ -933,7 +927,6 @@ def devotee_management_page():
 
             except Exception as e:
                 st.error(f"Error reading file: {str(e)}")
-
 # ============================================================
 # BILLING SYSTEM (Full with PDF & WhatsApp)
 # ============================================================
