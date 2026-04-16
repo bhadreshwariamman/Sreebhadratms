@@ -468,7 +468,10 @@ def login_page():
     with col2:
         st.markdown('<div class="login-container">', unsafe_allow_html=True)
         st.markdown(f'<div><img src="{amman_img}" class="amman-img"></div>', unsafe_allow_html=True)
+        # Inside login_page, after st.markdown('<div class="login-container">', unsafe_allow_html=True)
+        st.markdown(f'<div style="text-align:center; margin-bottom:20px;"><img src="{amman_img}" class="amman-img"></div>', unsafe_allow_html=True)
         st.markdown(f'<div class="temple-name">🛕 {TEMPLE_NAME}</div>', unsafe_allow_html=True)
+# ... rest of the login content
         st.markdown(f'<div class="temple-trust">{TEMPLE_TRUST}</div>', unsafe_allow_html=True)
         st.markdown(f'<div class="temple-address">📍 {TEMPLE_ADDRESS}</div>', unsafe_allow_html=True)
         st.markdown(f'<div class="temple-email">✉ {TEMPLE_EMAIL} | 📞 {TEMPLE_PHONE}</div>', unsafe_allow_html=True)
