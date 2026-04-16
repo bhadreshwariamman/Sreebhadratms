@@ -619,141 +619,249 @@ def dashboard_page():
 # ============================================================
 def devotee_management_page():
     render_header()
-    tab1, tab2, tab3, tab4 = st.tabs(["➕ Register","👨‍👩‍👧 Family Members","📋 View All","📤 Bulk Import"])
+    tab1, tab2, tab3, tab4 = st.tabs(["➕ Register", "👨‍👩‍👧 Family Members", "📋 View All", "📤 Bulk Import"])
+
+    # ==================== TAB 1: REGISTER NEW DEVOTEE ====================
     with tab1:
         with st.form("reg_devotee"):
             col1, col2 = st.columns(2)
             with col1:
                 name = st.text_input("Full Name *")
-                dob_str = st.text_input("DOB (DD/MM/YYYY)", value=format_date_ddmmyyyy(date(1980,1,1)))
-                gender = st.selectbox("Gender", ["Male","Female","Other"])
+                dob_str = st.text_input("Date of Birth (DD/MM/YYYY)", value=format_date_ddmmyyyy(date(1980, 1, 1)))
+                gender = st.selectbox("Gender", ["Male", "Female", "Other"])
                 mobile = st.text_input("Mobile")
-                whatsapp = st.text_input("WhatsApp")
+                whatsapp = st.text_input("WhatsApp No")
                 email = st.text_input("Email")
             with col2:
                 address = st.text_area("Address")
-                natchathiram = st.selectbox("Natchathiram", ["--"]+NATCHATHIRAM_LIST)
-                wedding_str = st.text_input("Wedding Day (DD/MM/YYYY)")
+                natchathiram = st.selectbox("Natchathiram (Star)", ["--"] + NATCHATHIRAM_LIST)
+                wedding_str = st.text_input("Wedding Day (DD/MM/YYYY)", placeholder="DD/MM/YYYY")
                 occupation = st.text_input("Occupation")
                 gothram = st.text_input("Gothram")
-            photo = st.file_uploader("Photo", type=['jpg','png','jpeg'])
+            photo = st.file_uploader("Photo", type=['jpg', 'png', 'jpeg'])
+            
             if st.form_submit_button("Register"):
-                if name:
+                if not name:
+                    st.error("Name is required")
+                else:
                     dob = parse_date_ddmmyyyy(dob_str) if dob_str else None
                     wedding = parse_date_ddmmyyyy(wedding_str) if wedding_str else None
                     if dob_str and not dob:
-                        st.error("Invalid DOB")
+                        st.error("Invalid DOB format. Use DD/MM/YYYY")
                     elif wedding_str and not wedding:
-                        st.error("Invalid Wedding date")
+                        st.error("Invalid Wedding date format. Use DD/MM/YYYY")
                     else:
                         dev_id = generate_unique_id('DEV')
                         photo_b64 = base64.b64encode(photo.getvalue()).decode() if photo else None
                         data = {
-                            'devotee_id':dev_id,'name':name,'dob':date_to_db(dob),'gender':gender,
-                            'mobile_no':mobile,'whatsapp_no':whatsapp,'email':email,'address':address,
-                            'natchathiram':natchathiram if natchathiram!="--" else None,
-                            'wedding_day':date_to_db(wedding),'occupation':occupation,'gothram':gothram,
-                            'photo_url':photo_b64
+                            'devotee_id': dev_id,
+                            'name': name,
+                            'dob': date_to_db(dob) if dob else None,
+                            'gender': gender,
+                            'mobile_no': mobile,
+                            'whatsapp_no': whatsapp,
+                            'email': email,
+                            'address': address,
+                            'natchathiram': natchathiram if natchathiram != "--" else None,
+                            'wedding_day': date_to_db(wedding) if wedding else None,
+                            'occupation': occupation,
+                            'gothram': gothram,
+                            'photo_url': photo_b64
                         }
                         supabase.table('devotees').insert(data).execute()
                         st.success(f"✅ {name} registered! ID: {dev_id}")
                         st.balloons()
+
+    # ==================== TAB 2: FAMILY MEMBERS ====================
     with tab2:
+        # Select head of family
         devotees = supabase.table('devotees').select('id,name,mobile_no').execute()
         if devotees.data:
-            dev_opt = {f"{d['name']} - {d.get('mobile_no','')}": d['id'] for d in devotees.data}
-            selected = st.selectbox("Select Devotee (Head)", list(dev_opt.keys()))
+            dev_opt = {f"{d['name']} - {d.get('mobile_no', '')}": d['id'] for d in devotees.data}
+            selected = st.selectbox("Select Devotee (Head of Family)", list(dev_opt.keys()))
             dev_id = dev_opt[selected]
-            family = supabase.table('family_members').select('*').eq('devotee_id',dev_id).execute()
+            
+            # Show existing family members
+            family = supabase.table('family_members').select('*').eq('devotee_id', dev_id).execute()
             if family.data:
-                st.write("**Existing Family Members:**")
+                st.markdown("**Existing Family Members:**")
                 for fm in family.data:
-                    col1, col2 = st.columns([3,1])
-                    dob_str = format_date_ddmmyyyy(datetime.strptime(fm['dob'],'%Y-%m-%d').date()) if fm.get('dob') else ''
+                    col1, col2 = st.columns([3, 1])
+                    dob_str = format_date_ddmmyyyy(datetime.strptime(fm['dob'], '%Y-%m-%d').date()) if fm.get('dob') else ''
                     col1.write(f"👤 {fm['name']} ({fm['relation_type']}) - DOB: {dob_str}")
                     if col2.button("🗑️", key=f"del_fm_{fm['id']}"):
-                        supabase.table('family_members').delete().eq('id',fm['id']).execute()
+                        supabase.table('family_members').delete().eq('id', fm['id']).execute()
                         st.rerun()
+            else:
+                st.info("No family members added yet.")
+            
+            # Add new family member
             with st.form("add_family"):
                 st.subheader("Add Family Member")
                 col1, col2 = st.columns(2)
                 with col1:
                     fm_name = st.text_input("Name")
-                    fm_dob_str = st.text_input("DOB (DD/MM/YYYY)", value=format_date_ddmmyyyy(date(2000,1,1)))
+                    fm_dob_str = st.text_input("DOB (DD/MM/YYYY)", value=format_date_ddmmyyyy(date(2000, 1, 1)))
                     fm_relation = st.selectbox("Relation", RELATION_TYPES)
                 with col2:
-                    fm_wedding_str = st.text_input("Wedding Day (DD/MM/YYYY)")
-                    fm_natchathiram = st.selectbox("Natchathiram", ["--"]+NATCHATHIRAM_LIST)
+                    fm_wedding_str = st.text_input("Wedding Day (DD/MM/YYYY)", placeholder="DD/MM/YYYY")
+                    fm_natchathiram = st.selectbox("Natchathiram", ["--"] + NATCHATHIRAM_LIST)
+                
                 if st.form_submit_button("Add Member"):
                     fm_dob = parse_date_ddmmyyyy(fm_dob_str) if fm_dob_str else None
                     fm_wedding = parse_date_ddmmyyyy(fm_wedding_str) if fm_wedding_str else None
-                    if fm_name and fm_dob:
+                    if not fm_name:
+                        st.error("Name is required")
+                    elif not fm_dob:
+                        st.error("Invalid DOB format. Use DD/MM/YYYY")
+                    else:
                         supabase.table('family_members').insert({
-                            'devotee_id':dev_id,'name':fm_name,'dob':date_to_db(fm_dob),
-                            'relation_type':fm_relation,'wedding_day':date_to_db(fm_wedding),
-                            'natchathiram':fm_natchathiram if fm_natchathiram!="--" else None
+                            'devotee_id': dev_id,
+                            'name': fm_name,
+                            'dob': date_to_db(fm_dob),
+                            'relation_type': fm_relation,
+                            'wedding_day': date_to_db(fm_wedding) if fm_wedding else None,
+                            'natchathiram': fm_natchathiram if fm_natchathiram != "--" else None
                         }).execute()
                         st.success("Family member added")
                         st.rerun()
-                    else:
-                        st.error("Name and valid DOB required")
         else:
-            st.warning("No devotees found")
+            st.warning("No devotees found. Please register a devotee first.")
+
+    # ==================== TAB 3: VIEW ALL DEVOTEES ====================
     with tab3:
-        search = st.text_input("🔍 Search by name/mobile/address")
+        search = st.text_input("🔍 Search by name / mobile / address")
         query = supabase.table('devotees').select('*').order('created_at', desc=True)
         if search:
             query = query.or_(f"name.ilike.%{search}%,mobile_no.ilike.%{search}%,address.ilike.%{search}%")
         res = query.execute()
         devotees = res.data if res.data else []
         st.write(f"**Total: {len(devotees)}**")
+        
         for d in devotees:
             with st.expander(f"👤 {d['name']} - {d['devotee_id']}"):
                 col1, col2 = st.columns(2)
                 with col1:
-                    st.write(f"📱 Mobile: {d.get('mobile_no','N/A')}")
-                    st.write(f"📲 WhatsApp: {d.get('whatsapp_no','N/A')}")
-                    st.write(f"📧 Email: {d.get('email','N/A')}")
-                    dob_obj = datetime.strptime(d['dob'],'%Y-%m-%d').date() if d.get('dob') else None
+                    st.write(f"📱 Mobile: {d.get('mobile_no', 'N/A')}")
+                    st.write(f"📲 WhatsApp: {d.get('whatsapp_no', 'N/A')}")
+                    st.write(f"📧 Email: {d.get('email', 'N/A')}")
+                    dob_obj = datetime.strptime(d['dob'], '%Y-%m-%d').date() if d.get('dob') else None
                     st.write(f"🎂 DOB: {format_date_ddmmyyyy(dob_obj) if dob_obj else 'N/A'}")
                 with col2:
-                    st.write(f"⭐ Star: {d.get('natchathiram','N/A')}")
-                    wedding_obj = datetime.strptime(d['wedding_day'],'%Y-%m-%d').date() if d.get('wedding_day') else None
+                    st.write(f"⭐ Star: {d.get('natchathiram', 'N/A')}")
+                    wedding_obj = datetime.strptime(d['wedding_day'], '%Y-%m-%d').date() if d.get('wedding_day') else None
                     st.write(f"💒 Wedding: {format_date_ddmmyyyy(wedding_obj) if wedding_obj else 'N/A'}")
-                    st.write(f"🏠 Address: {d.get('address','N/A')}")
+                    st.write(f"🏠 Address: {d.get('address', 'N/A')}")
                 if d.get('photo_url'):
                     st.image(base64.b64decode(d['photo_url']), width=100)
+                
                 if st.button("🗑️ Delete", key=f"del_dev_{d['id']}"):
-                    supabase.table('family_members').delete().eq('devotee_id',d['id']).execute()
-                    supabase.table('devotee_yearly_pooja').delete().eq('devotee_id',d['id']).execute()
-                    supabase.table('devotees').delete().eq('id',d['id']).execute()
+                    supabase.table('family_members').delete().eq('devotee_id', d['id']).execute()
+                    supabase.table('devotee_yearly_pooja').delete().eq('devotee_id', d['id']).execute()
+                    supabase.table('devotees').delete().eq('id', d['id']).execute()
                     st.rerun()
+
+    # ==================== TAB 4: BULK IMPORT ====================
     with tab4:
-        st.markdown("Download template, fill, and upload.")
-        template = pd.DataFrame([["Sample","01/01/1980","Male","9876543210","email@ex.com","Address","Aswini","10/05/2005","Business","Vishwamitra"]],
-                                columns=["Name","DOB","Gender","Mobile","Email","Address","Natchathiram","WeddingDay","Occupation","Gothram"])
-        csv = template.to_csv(index=False).encode()
-        st.download_button("📥 Template", csv, "devotee_template.csv")
-        uploaded = st.file_uploader("Upload CSV/Excel", type=['csv','xlsx'])
-        if uploaded:
-            df = pd.read_csv(uploaded) if uploaded.name.endswith('.csv') else pd.read_excel(uploaded)
-            if st.button("Import"):
-                success=0
-                for _, row in df.iterrows():
-                    try:
-                        dev_id = generate_unique_id('DEV')
-                        dob = parse_date_ddmmyyyy(str(row['DOB'])) if pd.notna(row['DOB']) else None
-                        wedding = parse_date_ddmmyyyy(str(row['WeddingDay'])) if pd.notna(row['WeddingDay']) else None
-                        supabase.table('devotees').insert({
-                            'devotee_id':dev_id,'name':str(row['Name']),'dob':date_to_db(dob),
-                            'gender':str(row['Gender']),'mobile_no':str(row['Mobile']),'email':str(row['Email']),
-                            'address':str(row['Address']),'natchathiram':str(row['Natchathiram']),
-                            'wedding_day':date_to_db(wedding),'occupation':str(row['Occupation']),'gothram':str(row['Gothram'])
-                        }).execute()
-                        success+=1
-                    except:
-                        pass
-                st.success(f"Imported {success} devotees")
+        st.markdown("### 📤 Bulk Import Devotees")
+        st.markdown("Download the template, fill it, and upload the file.")
+        
+        template_columns = [
+            "Name", "DOB (DD/MM/YYYY)", "Gender", "Mobile", "WhatsApp",
+            "Email", "Address", "Natchathiram", "WeddingDay (DD/MM/YYYY)",
+            "Occupation", "Gothram"
+        ]
+        sample_data = [[
+            "Sample Name", "01/01/1980", "Male", "9876543210", "9876543210",
+            "sample@email.com", "Sample Address", "Aswini", "10/05/2005",
+            "Business", "Vishwamitra"
+        ]]
+        template_df = pd.DataFrame(sample_data, columns=template_columns)
+        csv = template_df.to_csv(index=False).encode('utf-8')
+        st.download_button("📥 Download CSV Template", data=csv, file_name="devotee_bulk_template.csv", mime="text/csv", use_container_width=True)
+        
+        uploaded_file = st.file_uploader("Upload CSV/Excel File", type=['csv', 'xlsx', 'xls'])
+        if uploaded_file:
+            try:
+                if uploaded_file.name.endswith('.csv'):
+                    df = pd.read_csv(uploaded_file)
+                else:
+                    df = pd.read_excel(uploaded_file)
+                
+                st.subheader("Preview of uploaded data")
+                st.dataframe(df.head(10), use_container_width=True)
+                
+                if st.button("🚀 Start Import", type="primary", use_container_width=True):
+                    success_count = 0
+                    error_list = []
+                    
+                    for idx, row in df.iterrows():
+                        try:
+                            name = str(row.get('Name', '')).strip()
+                            if not name:
+                                error_list.append(f"Row {idx+2}: Name is required")
+                                continue
+                            
+                            dob_str = str(row.get('DOB (DD/MM/YYYY)', '')).strip()
+                            dob = parse_date_ddmmyyyy(dob_str) if dob_str and dob_str.lower() not in ['nan', 'none'] else None
+                            if dob_str and not dob:
+                                error_list.append(f"Row {idx+2}: Invalid DOB format. Use DD/MM/YYYY")
+                                continue
+                            
+                            wedding_str = str(row.get('WeddingDay (DD/MM/YYYY)', '')).strip()
+                            wedding = parse_date_ddmmyyyy(wedding_str) if wedding_str and wedding_str.lower() not in ['nan', 'none'] else None
+                            if wedding_str and not wedding:
+                                error_list.append(f"Row {idx+2}: Invalid Wedding date format. Use DD/MM/YYYY")
+                                continue
+                            
+                            gender = str(row.get('Gender', '')).strip() if pd.notna(row.get('Gender')) else ''
+                            mobile = str(row.get('Mobile', '')).strip() if pd.notna(row.get('Mobile')) else ''
+                            whatsapp = str(row.get('WhatsApp', '')).strip() if pd.notna(row.get('WhatsApp')) else ''
+                            email = str(row.get('Email', '')).strip() if pd.notna(row.get('Email')) else ''
+                            address = str(row.get('Address', '')).strip() if pd.notna(row.get('Address')) else ''
+                            natchathiram = str(row.get('Natchathiram', '')).strip() if pd.notna(row.get('Natchathiram')) else ''
+                            occupation = str(row.get('Occupation', '')).strip() if pd.notna(row.get('Occupation')) else ''
+                            gothram = str(row.get('Gothram', '')).strip() if pd.notna(row.get('Gothram')) else ''
+                            
+                            devotee_id = generate_unique_id('DEV')
+                            data = {
+                                'devotee_id': devotee_id,
+                                'name': name,
+                                'dob': date_to_db(dob) if dob else None,
+                                'gender': gender if gender else None,
+                                'mobile_no': mobile if mobile else None,
+                                'whatsapp_no': whatsapp if whatsapp else None,
+                                'email': email if email else None,
+                                'address': address if address else None,
+                                'natchathiram': natchathiram if natchathiram else None,
+                                'wedding_day': date_to_db(wedding) if wedding else None,
+                                'occupation': occupation if occupation else None,
+                                'gothram': gothram if gothram else None
+                            }
+                            supabase.table('devotees').insert(data).execute()
+                            success_count += 1
+                        except Exception as e:
+                            error_list.append(f"Row {idx+2}: {str(e)}")
+                    
+                    st.subheader("Import Results")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.metric("✅ Successfully Imported", success_count)
+                    with col2:
+                        st.metric("❌ Errors", len(error_list))
+                    if error_list:
+                        with st.expander(f"View Errors ({len(error_list)})"):
+                            for err in error_list[:20]:
+                                st.error(err)
+                            if len(error_list) > 20:
+                                st.warning(f"... and {len(error_list)-20} more errors")
+                    if success_count > 0:
+                        st.success(f"🎉 Successfully added {success_count} devotees!")
+                        st.balloons()
+                        time.sleep(1)
+                        st.rerun()
+            except Exception as e:
+                st.error(f"Error reading file: {str(e)}")
 
 # ============================================================
 # BILLING SYSTEM (Full with PDF & WhatsApp)
