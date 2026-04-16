@@ -749,8 +749,8 @@ def billing_page():
             bill_date_str = st.text_input("Bill Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()))
             pooja_types = supabase.table('pooja_types').select('name,amount').eq('is_active',True).execute()
             pooja_options = {p['name']:p['amount'] for p in pooja_types.data} if pooja_types.data else {}
-           pooja = st.selectbox("Pooja Type", list(pooja_options.keys()))
-           default_amount = pooja_options.get(pooja, 0)
+            pooja = st.selectbox("Pooja Type", list(pooja_options.keys()))
+            default_amount = pooja_options.get(pooja, 0)
             amount = st.number_input("Amount", min_value=0.0, value=default_amount, step=10.0, key="bill_amount")
             st.info(f"Amount: {TEMPLE_CONFIG['currency']}{amount}")
             payment = st.selectbox("Payment Mode", ["cash","card","upi","bank"])
@@ -792,6 +792,7 @@ def billing_page():
                 dev_name = guest_name
                 dev_mobile = guest_mobile
                 dev_address = guest_address
+
         if st.button("Generate Bill", type="primary"):
             if dev_type=="Guest" and not guest_name:
                 st.error("Enter guest name")
