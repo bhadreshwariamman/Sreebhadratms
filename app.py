@@ -759,11 +759,12 @@ def devotee_management_page():
                     st.rerun()
 
     # ==================== TAB 4: BULK IMPORT (FIXED) ====================
+       # ==================== TAB 4: BULK IMPORT (FIXED) ====================
     with tab4:
         st.markdown("### 📤 Bulk Import Devotees")
         st.markdown("Download the template, fill it, and upload the file.")
 
-        # Template columns (matching your CSV)
+        # Template columns
         template_columns = [
             "Name", "DOB (DD-MM-YYYY)", "Gender", "Mobile", "Email",
             "Address", "Natchathiram", "Wedding Day", "Occupation", "Gothram"
@@ -794,20 +795,52 @@ def devotee_management_page():
                 # Clean column names
                 df.columns = [col.strip() for col in df.columns]
 
-                st.subheader("Preview of uploaded data")
-                st.dataframe(df.head(10), use_container_width=True)
+                # ----- Helper: clean date (remove time part) -----
+                def clean_date_str(date_val):
+                    if pd.isna(date_val) or str(date_val).lower() in ['nan', 'none', '']:
+                        return ''
+                    s = str(date_val).strip()
+                    # If it contains a space, take only the first part (YYYY-MM-DD)
+                    if ' ' in s:
+                        s = s.split()[0]
+                    return s
 
-                # Flexible date parser
+                # ----- Prepare preview with cleaned dates -----
+                preview_df = df.copy()
+                # Find DOB column
+                dob_col = None
+                for col in ['DOB (DD-MM-YYYY)', 'DOB', 'Date of Birth']:
+                    if col in preview_df.columns:
+                        dob_col = col
+                        break
+                if dob_col:
+                    preview_df['DOB (cleaned)'] = preview_df[dob_col].apply(clean_date_str)
+                # Find Wedding column
+                wedding_col = None
+                for col in ['Wedding Day', 'WeddingDay', 'Wedding']:
+                    if col in preview_df.columns:
+                        wedding_col = col
+                        break
+                if wedding_col:
+                    preview_df['Wedding (cleaned)'] = preview_df[wedding_col].apply(clean_date_str)
+
+                st.subheader("Preview of uploaded data (dates cleaned)")
+                st.dataframe(preview_df.head(10), use_container_width=True)
+
+                # ----- Date parser that handles both formats -----
                 def parse_flexible_date(date_str):
                     if not date_str or str(date_str).lower() in ['nan', 'none', '']:
                         return None
                     date_str = str(date_str).strip()
+                    # Remove time part
                     if ' ' in date_str:
-                        date_str = date_str.split()[0]  # remove time
+                        date_str = date_str.split()[0]
+                    # Try YYYY-MM-DD
                     try:
                         return datetime.strptime(date_str, '%Y-%m-%d').date()
                     except:
                         pass
+                    # Try DD/MM/YYYY after replacing hyphens
                     if '-' in date_str:
                         date_str = date_str.replace('-', '/')
                     try:
@@ -815,34 +848,18 @@ def devotee_management_page():
                     except:
                         return None
 
-                # Show date parsing preview
-                if 'DOB' in df.columns or 'DOB (DD-MM-YYYY)' in df.columns:
-                    dob_col = 'DOB (DD-MM-YYYY)' if 'DOB (DD-MM-YYYY)' in df.columns else 'DOB'
-                    st.subheader("Date Parsing Preview")
-                    preview_df = df.head(5).copy()
-                    preview_df['Parsed DOB'] = preview_df[dob_col].apply(lambda x: parse_flexible_date(x))
-                    st.dataframe(preview_df[[dob_col, 'Parsed DOB']], use_container_width=True)
-
                 if st.button("🚀 Start Import", type="primary", use_container_width=True):
                     success_count = 0
                     error_list = []
 
-                    # Identify DOB column
-                    dob_col = None
-                    for col in ['DOB (DD-MM-YYYY)', 'DOB', 'Date of Birth']:
-                        if col in df.columns:
-                            dob_col = col
-                            break
+                    # Identify DOB column (again, for safety)
                     if dob_col is None:
-                        st.error("Could not find DOB column. Please ensure your CSV has a column named 'DOB (DD-MM-YYYY)' or 'DOB'.")
+                        st.error("Could not find DOB column. Please ensure your CSV has 'DOB (DD-MM-YYYY)' or 'DOB'.")
                         st.stop()
 
                     # Identify Wedding column
-                    wedding_col = None
-                    for col in ['Wedding Day', 'WeddingDay', 'Wedding']:
-                        if col in df.columns:
-                            wedding_col = col
-                            break
+                    if wedding_col is None:
+                        wedding_col = False  # no wedding column
 
                     for idx, row in df.iterrows():
                         try:
@@ -852,20 +869,22 @@ def devotee_management_page():
                                 continue
 
                             # Parse DOB
-                            dob_str = str(row.get(dob_col, '')).strip()
-                            dob = parse_flexible_date(dob_str)
-                            if dob_str and dob_str.lower() not in ['nan', 'none', ''] and not dob:
-                                error_list.append(f"Row {idx+2}: Invalid DOB format: {dob_str}")
+                            dob_raw = row.get(dob_col)
+                            dob_str = clean_date_str(dob_raw)
+                            dob = parse_flexible_date(dob_str) if dob_str else None
+                            if dob_str and not dob:
+                                error_list.append(f"Row {idx+2}: Invalid DOB format: {dob_raw}")
                                 continue
 
                             # Parse Wedding
                             wedding = None
                             if wedding_col:
-                                wedding_str = str(row.get(wedding_col, '')).strip()
-                                if wedding_str and wedding_str.lower() not in ['nan', 'none', '']:
+                                wedding_raw = row.get(wedding_col)
+                                wedding_str = clean_date_str(wedding_raw)
+                                if wedding_str:
                                     wedding = parse_flexible_date(wedding_str)
                                     if not wedding:
-                                        error_list.append(f"Row {idx+2}: Invalid Wedding date format: {wedding_str}")
+                                        error_list.append(f"Row {idx+2}: Invalid Wedding date format: {wedding_raw}")
                                         continue
 
                             # Other fields
@@ -879,7 +898,6 @@ def devotee_management_page():
 
                             devotee_id = generate_unique_id('DEV')
 
-                            # Insert into Supabase
                             data = {
                                 'devotee_id': devotee_id,
                                 'name': name,
@@ -894,12 +912,11 @@ def devotee_management_page():
                                 'occupation': occupation if occupation else None,
                                 'gothram': gothram if gothram else None
                             }
-                            # Execute insert and catch any Supabase error
                             result = supabase.table('devotees').insert(data).execute()
                             if result.data:
                                 success_count += 1
                             else:
-                                error_list.append(f"Row {idx+2}: Supabase insert returned no data")
+                                error_list.append(f"Row {idx+2}: Supabase insert failed (no data returned)")
 
                         except Exception as e:
                             error_list.append(f"Row {idx+2}: {str(e)}")
