@@ -665,9 +665,12 @@ def devotee_management_page():
                             'gothram': gothram,
                             'photo_url': photo_b64
                         }
-                        supabase.table('devotees').insert(data).execute()
-                        st.success(f"✅ {name} registered! ID: {dev_id}")
-                        st.balloons()
+                        try:
+                            supabase.table('devotees').insert(data).execute()
+                            st.success(f"✅ {name} registered! ID: {dev_id}")
+                            st.balloons()
+                        except Exception as e:
+                            st.error(f"Supabase error: {e}")
 
     # ==================== TAB 2: FAMILY MEMBERS ====================
     with tab2:
@@ -755,12 +758,12 @@ def devotee_management_page():
                     supabase.table('devotees').delete().eq('id', d['id']).execute()
                     st.rerun()
 
-    # ==================== TAB 4: BULK IMPORT (HANDLES EXCEL DATES) ====================
+    # ==================== TAB 4: BULK IMPORT (FIXED) ====================
     with tab4:
         st.markdown("### 📤 Bulk Import Devotees")
         st.markdown("Upload CSV or Excel file. Required columns: Name, DOB (DD-MM-YYYY)")
 
-        # Download template (matches your CSV)
+        # Download template
         template_columns = [
             "Name", "DOB (DD-MM-YYYY)", "Gender", "Mobile", "Email",
             "Address", "Natchathiram", "Wedding Day", "Occupation", "Gothram"
@@ -771,60 +774,44 @@ def devotee_management_page():
         ]]
         template_df = pd.DataFrame(sample_data, columns=template_columns)
         csv = template_df.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            "📥 Download CSV Template",
-            data=csv,
-            file_name="devotee_bulk_template.csv",
-            mime="text/csv",
-            use_container_width=True
-        )
+        st.download_button("📥 Download CSV Template", data=csv, file_name="devotee_bulk_template.csv", mime="text/csv", use_container_width=True)
 
         uploaded_file = st.file_uploader("Upload CSV/Excel File", type=['csv', 'xlsx', 'xls'])
         if uploaded_file:
             try:
-                # Read file – for Excel, keep dates as strings to avoid conversion
+                # Read file as strings
                 if uploaded_file.name.endswith('.csv'):
                     df = pd.read_csv(uploaded_file, dtype=str)
                 else:
-                    # Excel: read all columns as string to preserve raw values
                     df = pd.read_excel(uploaded_file, dtype=str, keep_default_na=False)
-                    # Replace empty strings with NaN
                     df = df.replace(r'^\s*$', pd.NA, regex=True)
 
-                # Clean column names
                 df.columns = [col.strip() for col in df.columns]
 
-                # Check required columns
+                # Validate required columns
                 if 'Name' not in df.columns:
-                    st.error("Missing 'Name' column. Please use the template.")
+                    st.error("Missing 'Name' column")
                     st.stop()
                 if 'DOB (DD-MM-YYYY)' not in df.columns:
-                    st.error("Missing 'DOB (DD-MM-YYYY)' column. Please use the template.")
+                    st.error("Missing 'DOB (DD-MM-YYYY)' column")
                     st.stop()
 
-                st.subheader("Preview of uploaded data")
+                st.subheader("Preview (first 10 rows)")
                 st.dataframe(df.head(10), use_container_width=True)
 
-                # ----- Robust date parser for various formats -----
-                def parse_date_flexible(value):
+                # Date parser
+                def parse_flexible_date(value):
                     if pd.isna(value) or value == '':
                         return None
                     s = str(value).strip()
-                    # Remove time part if present (e.g., "1960-05-05 00:00:00")
                     if ' ' in s:
-                        s = s.split()[0]
-                    # Replace '-' with '/' for uniformity
-                    s = s.replace('-', '/')
-                    # Try DD/MM/YYYY
-                    try:
-                        return datetime.strptime(s, '%d/%m/%Y').date()
-                    except:
-                        pass
-                    # Try YYYY/MM/DD
-                    try:
-                        return datetime.strptime(s, '%Y/%m/%d').date()
-                    except:
-                        pass
+                        s = s.split()[0]               # remove time
+                    s = s.replace('-', '/')            # unify separator
+                    for fmt in ('%d/%m/%Y', '%Y/%m/%d'):
+                        try:
+                            return datetime.strptime(s, fmt).date()
+                        except:
+                            continue
                     return None
 
                 if st.button("🚀 Start Import", type="primary", use_container_width=True):
@@ -835,34 +822,41 @@ def devotee_management_page():
                         try:
                             name = str(row.get('Name', '')).strip()
                             if not name or name.lower() == 'nan':
-                                error_list.append(f"Row {idx+2}: Name is empty")
+                                error_list.append(f"Row {idx+2}: Name missing")
                                 continue
 
-                            # Parse DOB
+                            # DOB
                             dob_raw = row.get('DOB (DD-MM-YYYY)', '')
-                            dob = parse_date_flexible(dob_raw)
+                            dob = parse_flexible_date(dob_raw)
                             if dob_raw and str(dob_raw).strip() and not dob:
-                                error_list.append(f"Row {idx+2}: Invalid DOB format: {dob_raw}")
+                                error_list.append(f"Row {idx+2}: Invalid DOB '{dob_raw}'")
                                 continue
 
-                            # Parse Wedding Day (if column exists)
+                            # Wedding Day
                             wedding = None
                             if 'Wedding Day' in df.columns:
                                 wedding_raw = row.get('Wedding Day', '')
                                 if wedding_raw and str(wedding_raw).strip():
-                                    wedding = parse_date_flexible(wedding_raw)
+                                    wedding = parse_flexible_date(wedding_raw)
                                     if not wedding:
-                                        error_list.append(f"Row {idx+2}: Invalid Wedding date format: {wedding_raw}")
+                                        error_list.append(f"Row {idx+2}: Invalid Wedding date '{wedding_raw}'")
                                         continue
 
-                            # Other fields
-                            gender = str(row.get('Gender', '')).strip() if pd.notna(row.get('Gender')) else ''
-                            mobile = str(row.get('Mobile', '')).strip() if pd.notna(row.get('Mobile')) else ''
-                            email = str(row.get('Email', '')).strip() if pd.notna(row.get('Email')) else ''
-                            address = str(row.get('Address', '')).strip() if pd.notna(row.get('Address')) else ''
-                            natchathiram = str(row.get('Natchathiram', '')).strip() if pd.notna(row.get('Natchathiram')) else ''
-                            occupation = str(row.get('Occupation', '')).strip() if pd.notna(row.get('Occupation')) else ''
-                            gothram = str(row.get('Gothram', '')).strip() if pd.notna(row.get('Gothram')) else ''
+                            # Other fields – convert empty strings to None
+                            gender = row.get('Gender', '')
+                            gender = gender if pd.notna(gender) and str(gender).strip() else None
+                            mobile = row.get('Mobile', '')
+                            mobile = mobile if pd.notna(mobile) and str(mobile).strip() else None
+                            email = row.get('Email', '')
+                            email = email if pd.notna(email) and str(email).strip() else None
+                            address = row.get('Address', '')
+                            address = address if pd.notna(address) and str(address).strip() else None
+                            natchathiram = row.get('Natchathiram', '')
+                            natchathiram = natchathiram if pd.notna(natchathiram) and str(natchathiram).strip() else None
+                            occupation = row.get('Occupation', '')
+                            occupation = occupation if pd.notna(occupation) and str(occupation).strip() else None
+                            gothram = row.get('Gothram', '')
+                            gothram = gothram if pd.notna(gothram) and str(gothram).strip() else None
 
                             devotee_id = generate_unique_id('DEV')
 
@@ -870,45 +864,43 @@ def devotee_management_page():
                                 'devotee_id': devotee_id,
                                 'name': name,
                                 'dob': date_to_db(dob) if dob else None,
-                                'gender': gender if gender else None,
-                                'mobile_no': mobile if mobile else None,
-                                'whatsapp_no': mobile,
-                                'email': email if email else None,
-                                'address': address if address else None,
-                                'natchathiram': natchathiram if natchathiram else None,
+                                'gender': gender,
+                                'mobile_no': mobile,
+                                'whatsapp_no': mobile,   # fallback
+                                'email': email,
+                                'address': address,
+                                'natchathiram': natchathiram,
                                 'wedding_day': date_to_db(wedding) if wedding else None,
-                                'occupation': occupation if occupation else None,
-                                'gothram': gothram if gothram else None
+                                'occupation': occupation,
+                                'gothram': gothram
                             }
+                            # Insert with explicit error capture
                             supabase.table('devotees').insert(data).execute()
                             success_count += 1
 
                         except Exception as e:
+                            # Display full Supabase error
                             error_list.append(f"Row {idx+2}: {str(e)}")
 
-                    # Show results
                     st.subheader("Import Results")
                     col1, col2 = st.columns(2)
                     with col1:
-                        st.metric("✅ Successfully Imported", success_count)
+                        st.metric("✅ Success", success_count)
                     with col2:
                         st.metric("❌ Errors", len(error_list))
 
                     if error_list:
-                        with st.expander(f"View Errors ({len(error_list)})"):
+                        with st.expander("Error Details"):
                             for err in error_list[:50]:
                                 st.error(err)
-                            if len(error_list) > 50:
-                                st.warning(f"... and {len(error_list)-50} more errors")
-
-                    if success_count > 0:
-                        st.success(f"🎉 Successfully added {success_count} devotees!")
+                    if success_count:
+                        st.success(f"🎉 Added {success_count} devotees!")
                         st.balloons()
                         time.sleep(1)
                         st.rerun()
 
             except Exception as e:
-                st.error(f"Error reading file: {str(e)}")
+                st.error(f"File reading error: {e}")
 # ============================================================
 # BILLING SYSTEM (Full with PDF & WhatsApp)
 # ============================================================
