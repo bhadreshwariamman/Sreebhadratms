@@ -614,9 +614,6 @@ def dashboard_page():
                 st.info("No poojas scheduled")
         except: pass
 
-# ============================================================
-# DEVOTEE MANAGEMENT (Full)
-# ============================================================
 def devotee_management_page():
     render_header()
     tab1, tab2, tab3, tab4 = st.tabs(["➕ Register", "👨‍👩‍👧 Family Members", "📋 View All", "📤 Bulk Import"])
@@ -758,12 +755,12 @@ def devotee_management_page():
                     supabase.table('devotees').delete().eq('id', d['id']).execute()
                     st.rerun()
 
-       # ==================== TAB 4: BULK IMPORT (FIXED FOR EXCEL DATES) ====================
+    # ==================== TAB 4: BULK IMPORT (HANDLES EXCEL DATES) ====================
     with tab4:
         st.markdown("### 📤 Bulk Import Devotees")
-        st.markdown("Upload your CSV or Excel file. The columns must match the template.")
+        st.markdown("Upload CSV or Excel file. Required columns: Name, DOB (DD-MM-YYYY)")
 
-        # Download template button
+        # Download template (matches your CSV)
         template_columns = [
             "Name", "DOB (DD-MM-YYYY)", "Gender", "Mobile", "Email",
             "Address", "Natchathiram", "Wedding Day", "Occupation", "Gothram"
@@ -785,46 +782,50 @@ def devotee_management_page():
         uploaded_file = st.file_uploader("Upload CSV/Excel File", type=['csv', 'xlsx', 'xls'])
         if uploaded_file:
             try:
-                # Read file
+                # Read file – for Excel, keep dates as strings to avoid conversion
                 if uploaded_file.name.endswith('.csv'):
                     df = pd.read_csv(uploaded_file, dtype=str)
                 else:
-                    # For Excel, read without dtype=str to preserve dates as datetime objects
-                    df = pd.read_excel(uploaded_file)
-                    # Convert all columns to string to avoid issues, but handle datetime separately
-                    # We'll process each column later
+                    # Excel: read all columns as string to preserve raw values
+                    df = pd.read_excel(uploaded_file, dtype=str, keep_default_na=False)
+                    # Replace empty strings with NaN
+                    df = df.replace(r'^\s*$', pd.NA, regex=True)
 
                 # Clean column names
                 df.columns = [col.strip() for col in df.columns]
 
-                # Verify required columns exist
-                required_cols = ['Name', 'DOB (DD-MM-YYYY)']
-                for col in required_cols:
-                    if col not in df.columns:
-                        st.error(f"Missing required column: '{col}'. Please use the template.")
-                        st.stop()
+                # Check required columns
+                if 'Name' not in df.columns:
+                    st.error("Missing 'Name' column. Please use the template.")
+                    st.stop()
+                if 'DOB (DD-MM-YYYY)' not in df.columns:
+                    st.error("Missing 'DOB (DD-MM-YYYY)' column. Please use the template.")
+                    st.stop()
 
                 st.subheader("Preview of uploaded data")
                 st.dataframe(df.head(10), use_container_width=True)
 
-                # ----- Date parser that handles string, datetime, and pandas Timestamp -----
-                def parse_dob(value):
-                    if pd.isna(value):
+                # ----- Robust date parser for various formats -----
+                def parse_date_flexible(value):
+                    if pd.isna(value) or value == '':
                         return None
-                    # If it's a datetime or Timestamp object
-                    if hasattr(value, 'strftime'):
-                        return value.date()  # returns date object
-                    # Otherwise, it's a string
                     s = str(value).strip()
-                    if s == '':
-                        return None
-                    # Replace '-' with '/' for consistency
+                    # Remove time part if present (e.g., "1960-05-05 00:00:00")
+                    if ' ' in s:
+                        s = s.split()[0]
+                    # Replace '-' with '/' for uniformity
                     s = s.replace('-', '/')
                     # Try DD/MM/YYYY
                     try:
                         return datetime.strptime(s, '%d/%m/%Y').date()
                     except:
-                        return None
+                        pass
+                    # Try YYYY/MM/DD
+                    try:
+                        return datetime.strptime(s, '%Y/%m/%d').date()
+                    except:
+                        pass
+                    return None
 
                 if st.button("🚀 Start Import", type="primary", use_container_width=True):
                     success_count = 0
@@ -837,19 +838,22 @@ def devotee_management_page():
                                 error_list.append(f"Row {idx+2}: Name is empty")
                                 continue
 
-                            # Parse DOB (handle datetime objects)
-                            dob_raw = row.get('DOB (DD-MM-YYYY)')
-                            dob = parse_dob(dob_raw)
-                            if pd.notna(dob_raw) and str(dob_raw).strip() and dob is None:
-                                error_list.append(f"Row {idx+2}: Invalid DOB format: {dob_raw} (use DD-MM-YYYY)")
+                            # Parse DOB
+                            dob_raw = row.get('DOB (DD-MM-YYYY)', '')
+                            dob = parse_date_flexible(dob_raw)
+                            if dob_raw and str(dob_raw).strip() and not dob:
+                                error_list.append(f"Row {idx+2}: Invalid DOB format: {dob_raw}")
                                 continue
 
-                            # Parse Wedding Day
-                            wedding_raw = row.get('Wedding Day', '') if 'Wedding Day' in df.columns else ''
-                            wedding = parse_dob(wedding_raw) if pd.notna(wedding_raw) and str(wedding_raw).strip() else None
-                            if pd.notna(wedding_raw) and str(wedding_raw).strip() and wedding is None:
-                                error_list.append(f"Row {idx+2}: Invalid Wedding date format: {wedding_raw}")
-                                continue
+                            # Parse Wedding Day (if column exists)
+                            wedding = None
+                            if 'Wedding Day' in df.columns:
+                                wedding_raw = row.get('Wedding Day', '')
+                                if wedding_raw and str(wedding_raw).strip():
+                                    wedding = parse_date_flexible(wedding_raw)
+                                    if not wedding:
+                                        error_list.append(f"Row {idx+2}: Invalid Wedding date format: {wedding_raw}")
+                                        continue
 
                             # Other fields
                             gender = str(row.get('Gender', '')).strip() if pd.notna(row.get('Gender')) else ''
@@ -860,10 +864,8 @@ def devotee_management_page():
                             occupation = str(row.get('Occupation', '')).strip() if pd.notna(row.get('Occupation')) else ''
                             gothram = str(row.get('Gothram', '')).strip() if pd.notna(row.get('Gothram')) else ''
 
-                            # Generate unique ID
                             devotee_id = generate_unique_id('DEV')
 
-                            # Insert into Supabase
                             data = {
                                 'devotee_id': devotee_id,
                                 'name': name,
@@ -878,11 +880,8 @@ def devotee_management_page():
                                 'occupation': occupation if occupation else None,
                                 'gothram': gothram if gothram else None
                             }
-                            result = supabase.table('devotees').insert(data).execute()
-                            if result.data:
-                                success_count += 1
-                            else:
-                                error_list.append(f"Row {idx+2}: Supabase insert failed")
+                            supabase.table('devotees').insert(data).execute()
+                            success_count += 1
 
                         except Exception as e:
                             error_list.append(f"Row {idx+2}: {str(e)}")
