@@ -1156,7 +1156,8 @@ def pooja_management_page():
 # ============================================================
 def expense_page():
     render_header()
-    tab1, tab2 = st.tabs(["➕ Add Expense","📋 History"])
+    tab1, tab2 = st.tabs(["➕ Add Expense", "📋 History"])
+
     with tab1:
         with st.form("add_exp"):
             col1, col2 = st.columns(2)
@@ -1165,41 +1166,73 @@ def expense_page():
                 exp_list = [e['name'] for e in exp_types.data] if exp_types.data else []
                 exp_type = st.selectbox("Expense Type", exp_list)
                 amount = st.number_input("Amount", min_value=0.0, step=10.0)
-                date_exp_str = st.text_input("Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()))
+                date_exp_str = st.text_input("Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()), placeholder="DD/MM/YYYY")
             with col2:
                 bill_no = st.text_input("Bill/Invoice No")
                 vendor = st.text_input("Vendor")
             desc = st.text_area("Description")
-            if st.form_submit_button("Add"):
+
+            if st.form_submit_button("Add Expense"):
                 date_exp = parse_date_ddmmyyyy(date_exp_str)
-                if exp_type and amount>0 and date_exp:
+                if exp_type and amount > 0 and date_exp:
                     supabase.table('expenses').insert({
-                        'expense_type':exp_type,'amount':amount,'description':desc,
-                        'expense_date':date_to_db(date_exp),'bill_no':bill_no,'vendor_name':vendor
+                        'expense_type': exp_type,
+                        'amount': amount,
+                        'description': desc,
+                        'expense_date': date_to_db(date_exp),
+                        'bill_no': bill_no,
+                        'vendor_name': vendor
                     }).execute()
                     st.success("Expense added")
                     st.rerun()
                 else:
                     st.error("Invalid date or missing fields")
+
     with tab2:
-        from_date_str = st.text_input("From Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()-timedelta(30)))
-        to_date_str = st.text_input("To Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()))
+        st.subheader("Expense History")
+        from_date_str = st.text_input("From Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today() - timedelta(30)), placeholder="DD/MM/YYYY")
+        to_date_str = st.text_input("To Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()), placeholder="DD/MM/YYYY")
+
         from_date = parse_date_ddmmyyyy(from_date_str) if from_date_str else None
         to_date = parse_date_ddmmyyyy(to_date_str) if to_date_str else None
+
         if from_date and to_date:
-            exps = supabase.table('expenses').select('*').gte('expense_date',date_to_db(from_date)).lte('expense_date',date_to_db(to_date)).order('expense_date',desc=True).execute()
-            if exps.data:
-                df = pd.DataFrame(exps.data)
-                total = df['amount'].sum()
-                st.metric("Total Expenses", f"{TEMPLE_CONFIG['currency']}{total:,.2f}")
-                df['expense_date_display'] = df['expense_date'].apply(lambda x: format_date_ddmmyyyy(datetime.strptime(x,'%Y-%m-%d').date()) if x else '')
-                st.dataframe(df[['expense_date_display','expense_type','amount','description','vendor_name']])
-                csv = df.to_csv(index=False).encode()
-                st.download_button("📥 Export", csv, "expenses.csv")
-            else:
-                st.info("No expenses")
+            try:
+                response = supabase.table('expenses') \
+                    .select('*') \
+                    .gte('expense_date', date_to_db(from_date)) \
+                    .lte('expense_date', date_to_db(to_date)) \
+                    .order('expense_date', desc=True) \
+                    .execute()
+                expenses = response.data if response.data else []
+
+                if expenses:
+                    total = sum(e['amount'] for e in expenses)
+                    st.metric("Total Expenses", f"{TEMPLE_CONFIG['currency']}{total:,.2f}")
+
+                    # Display each expense with a delete button
+                    for exp in expenses:
+                        col1, col2, col3, col4, col5 = st.columns([2, 2, 2, 2, 1])
+                        with col1:
+                            st.write(format_date_ddmmyyyy(datetime.strptime(exp['expense_date'], '%Y-%m-%d').date()))
+                        with col2:
+                            st.write(exp['expense_type'])
+                        with col3:
+                            st.write(f"{TEMPLE_CONFIG['currency']}{exp['amount']:,.2f}")
+                        with col4:
+                            st.write(exp.get('description', '')[:50])
+                        with col5:
+                            if st.button("🗑️", key=f"del_exp_{exp['id']}"):
+                                supabase.table('expenses').delete().eq('id', exp['id']).execute()
+                                st.success("Expense deleted")
+                                st.rerun()
+                        st.markdown("---")
+                else:
+                    st.info("No expenses found in this period")
+            except Exception as e:
+                st.error(f"Error loading expenses: {e}")
         else:
-            st.warning("Invalid date range")
+            st.warning("Please enter valid date range")
 
 # ============================================================
 # DONATIONS (Full)
