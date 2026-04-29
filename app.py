@@ -908,146 +908,246 @@ def billing_page():
     render_header()
     tab1, tab2 = st.tabs(["🧾 New Bill", "📋 Bill History"])
     amman_img = get_amman_image()
+    
+    # ==================== TAB 1: NEW BILL ====================
     with tab1:
-        col1, col2 = st.columns(2)
-        with col1:
-            manual_bill = st.text_input("Manual Bill No (optional)")
-            book_no = st.text_input("Book No (optional)")
-            bill_date_str = st.text_input("Bill Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()))
-            pooja_types = supabase.table('pooja_types').select('name,amount').eq('is_active',True).execute()
-            pooja_options = {p['name']:p['amount'] for p in pooja_types.data} if pooja_types.data else {}
-            pooja = st.selectbox("Pooja Type", list(pooja_options.keys()))
-            default_amount = pooja_options.get(pooja, 0)
-            amount = st.number_input("Amount", min_value=0.0, value=default_amount, step=10.0, key="bill_amount")
-            st.info(f"Amount: {TEMPLE_CONFIG['currency']}{amount}")
-            payment = st.selectbox("Payment Mode", ["cash","card","upi","bank"])
-        with col2:
-            dev_type = st.radio("Devotee Type", ["Registered","Guest"])
-            if dev_type == "Registered":
-                st.markdown("### Search Devotee")
-                search_by = st.selectbox("Search by", ["Name","Mobile No","Address"])
-                search_term = st.text_input(f"Enter {search_by}")
-                devotee_id = None
-                dev_name = ""
-                dev_mobile = ""
-                dev_address = ""
-                if search_term:
-                    query = supabase.table('devotees').select('id,name,mobile_no,address')
-                    if search_by == "Name":
-                        query = query.ilike('name',f'%{search_term}%')
-                    elif search_by == "Mobile No":
-                        query = query.ilike('mobile_no',f'%{search_term}%')
-                    else:
-                        query = query.ilike('address',f'%{search_term}%')
-                    res = query.limit(10).execute()
-                    if res.data:
-                        dev_opts = {f"{d['name']} - {d.get('mobile_no','')}":d for d in res.data}
-                        selected = st.selectbox("Select Devotee", list(dev_opts.keys()))
-                        dev = dev_opts[selected]
-                        devotee_id = dev['id']
-                        dev_name = dev['name']
-                        dev_mobile = dev.get('mobile_no','')
-                        dev_address = dev.get('address','')
-                        st.success(f"Selected: {dev_name}")
-                    else:
-                        st.warning("No devotees found")
-            else:
-                devotee_id = None
-                guest_name = st.text_input("Guest Name *")
-                guest_mobile = st.text_input("Mobile")
-                guest_address = st.text_area("Address")
-                dev_name = guest_name
-                dev_mobile = guest_mobile
-                dev_address = guest_address
-
-        if st.button("Generate Bill", type="primary"):
-            if dev_type=="Guest" and not guest_name:
-                st.error("Enter guest name")
-            elif amount<=0:
-                st.error("Invalid amount")
-            else:
-                bill_date = parse_date_ddmmyyyy(bill_date_str)
-                if not bill_date:
-                    st.error("Invalid bill date. Use DD/MM/YYYY")
-                else:
-                    bill_no = generate_unique_id('BILL')
-                    bill_date_display = format_date_ddmmyyyy(bill_date)
-                    data = {
-                        'bill_no':bill_no,'manual_bill_no':manual_bill,'bill_book_no':book_no,
-                        'devotee_type':'registered' if dev_type=="Registered" else 'guest',
-                        'devotee_id':devotee_id if dev_type=="Registered" else None,
-                        'guest_name':guest_name if dev_type=="Guest" else None,
-                        'guest_mobile':guest_mobile if dev_type=="Guest" else None,
-                        'guest_address':guest_address if dev_type=="Guest" else None,
-                        'pooja_type':pooja,'amount':amount,'bill_date':date_to_db(bill_date),
-                        'payment_mode':payment
-                    }
-                    supabase.table('bills').insert(data).execute()
-                    st.success(f"Bill generated: {bill_no}")
-                    st.balloons()
-                    st.markdown(f"""
-                    <div style='border:2px solid #667eea; padding:20px; border-radius:10px; background:white; margin:10px 0;'>
-                        <h3 style='text-align:center'>{TEMPLE_NAME}</h3>
-                        <p style='text-align:center'>{TEMPLE_TRUST}<br>{TEMPLE_ADDRESS}<br>✉ {TEMPLE_EMAIL}</p>
-                        <hr><h4>BILL / RECEIPT</h4><hr>
-                        <p><strong>Bill No:</strong> {bill_no}<br><strong>Date:</strong> {bill_date_display}<br>
-                        <strong>Name:</strong> {dev_name}<br><strong>Address:</strong> {dev_address}<br>
-                        <strong>Mobile:</strong> {dev_mobile}<br><strong>Pooja:</strong> {pooja}<br>
-                        <strong>Amount:</strong> {TEMPLE_CONFIG['currency']}{amount:,.2f}</p>
-                        <hr><p>🙏 Thank you! {TEMPLE_TAMIL} 🙏</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    colA, colB = st.columns(2)
-                    with colA:
-                        if PDF_AVAILABLE:
-                            pdf = generate_bill_pdf(bill_no,manual_bill,book_no,bill_date_display,dev_name,dev_address,dev_mobile,pooja,amount,amman_base64=amman_img)
-                            if pdf:
-                                st.download_button("📥 Download PDF", data=pdf, file_name=f"Bill_{bill_no}.pdf", mime="application/pdf")
-                            else:
-                                st.error("PDF generation failed")
-                    with colB:
-                        wa_num = dev_mobile or (guest_mobile if dev_type=="Guest" else "")
-                        if wa_num:
-                            wa_msg = build_bill_whatsapp_message(bill_no,bill_date_display,dev_name,pooja,amount,manual_bill,book_no)
-                            st.markdown(f'<a href="{make_whatsapp_link(wa_num,wa_msg)}" target="_blank" style="display:inline-block; background:#25D366; color:white; padding:10px 20px; border-radius:10px; text-decoration:none; width:100%; text-align:center;">📲 Send via WhatsApp</a>', unsafe_allow_html=True)
-                            if st.button("📋 Copy Bill Message"):
-                                st.code(wa_msg, language="text")
-                                st.success("Message copied! You can paste it in WhatsApp.")
+        # Use a form with a unique key that resets after submission
+        with st.form(key="bill_form", clear_on_submit=True):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                manual_bill = st.text_input("Manual Bill No (optional)")
+                book_no = st.text_input("Book No (optional)")
+                bill_date_str = st.text_input("Bill Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()), placeholder="DD/MM/YYYY")
+                pooja_types = supabase.table('pooja_types').select('name,amount').eq('is_active', True).execute()
+                pooja_options = {p['name']: p['amount'] for p in pooja_types.data} if pooja_types.data else {}
+                pooja = st.selectbox("Pooja Type", list(pooja_options.keys()))
+                default_amount = pooja_options.get(pooja, 0)
+                amount = st.number_input("Amount", min_value=0.0, value=default_amount, step=10.0, key="bill_amount")
+                st.info(f"Amount: {TEMPLE_CONFIG['currency']}{amount}")
+                payment = st.selectbox("Payment Mode", ["cash", "card", "upi", "bank"])
+            
+            with col2:
+                dev_type = st.radio("Devotee Type", ["Registered", "Guest"])
+                
+                if dev_type == "Registered":
+                    st.markdown("### Search Devotee")
+                    search_by = st.selectbox("Search by", ["Name", "Mobile No", "Address"])
+                    search_term = st.text_input(f"Enter {search_by}")
+                    devotee_id = None
+                    dev_name = ""
+                    dev_mobile = ""
+                    dev_address = ""
+                    
+                    if search_term:
+                        query = supabase.table('devotees').select('id,name,mobile_no,address')
+                        if search_by == "Name":
+                            query = query.ilike('name', f'%{search_term}%')
+                        elif search_by == "Mobile No":
+                            query = query.ilike('mobile_no', f'%{search_term}%')
                         else:
-                            st.warning("No mobile number for WhatsApp")
+                            query = query.ilike('address', f'%{search_term}%')
+                        res = query.limit(10).execute()
+                        
+                        if res.data:
+                            dev_opts = {f"{d['name']} - {d.get('mobile_no', '')}": d for d in res.data}
+                            selected = st.selectbox("Select Devotee", list(dev_opts.keys()))
+                            dev = dev_opts[selected]
+                            devotee_id = dev['id']
+                            dev_name = dev['name']
+                            dev_mobile = dev.get('mobile_no', '')
+                            dev_address = dev.get('address', '')
+                            st.success(f"Selected: {dev_name}")
+                        else:
+                            st.warning("No devotees found")
+                            devotee_id = None
+                else:
+                    devotee_id = None
+                    guest_name = st.text_input("Guest Name *")
+                    guest_mobile = st.text_input("Mobile")
+                    guest_address = st.text_area("Address")
+                    dev_name = guest_name
+                    dev_mobile = guest_mobile
+                    dev_address = guest_address
+            
+            # Submit button inside the form - fields will auto-clear on success
+            submitted = st.form_submit_button("Generate Bill", type="primary")
+            
+            if submitted:
+                # Validation
+                if dev_type == "Guest" and not guest_name:
+                    st.error("Enter guest name")
+                elif amount <= 0:
+                    st.error("Invalid amount")
+                else:
+                    bill_date = parse_date_ddmmyyyy(bill_date_str)
+                    if not bill_date:
+                        st.error("Invalid bill date. Use DD/MM/YYYY")
+                    else:
+                        bill_no = generate_unique_id('BILL')
+                        bill_date_display = format_date_ddmmyyyy(bill_date)
+                        
+                        data = {
+                            'bill_no': bill_no,
+                            'manual_bill_no': manual_bill,
+                            'bill_book_no': book_no,
+                            'devotee_type': 'registered' if dev_type == "Registered" else 'guest',
+                            'devotee_id': devotee_id if dev_type == "Registered" else None,
+                            'guest_name': guest_name if dev_type == "Guest" else None,
+                            'guest_mobile': guest_mobile if dev_type == "Guest" else None,
+                            'guest_address': guest_address if dev_type == "Guest" else None,
+                            'pooja_type': pooja,
+                            'amount': amount,
+                            'bill_date': date_to_db(bill_date),
+                            'payment_mode': payment
+                        }
+                        
+                        supabase.table('bills').insert(data).execute()
+                        st.success(f"✅ Bill generated successfully! Bill No: {bill_no}")
+                        st.balloons()
+                        
+                        # Display receipt
+                        st.markdown(f"""
+                        <div style='border:2px solid #667eea; padding:20px; border-radius:10px; background:white; margin:10px 0;'>
+                            <h3 style='text-align:center'>{TEMPLE_NAME}</h3>
+                            <p style='text-align:center'>{TEMPLE_TRUST}<br>{TEMPLE_ADDRESS}<br>✉ {TEMPLE_EMAIL}</p>
+                            <hr><h4 style='text-align:center'>BILL / RECEIPT</h4><hr>
+                            <p><strong>Bill No:</strong> {bill_no}<br>
+                            <strong>Date:</strong> {bill_date_display}<br>
+                            <strong>Name:</strong> {dev_name}<br>
+                            <strong>Address:</strong> {dev_address}<br>
+                            <strong>Mobile:</strong> {dev_mobile}<br>
+                            <strong>Pooja:</strong> {pooja}<br>
+                            <strong>Amount:</strong> {TEMPLE_CONFIG['currency']}{amount:,.2f}</p>
+                            <hr><p style='text-align:center'>🙏 Thank you! {TEMPLE_TAMIL} 🙏</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # PDF and WhatsApp buttons
+                        colA, colB = st.columns(2)
+                        with colA:
+                            if PDF_AVAILABLE:
+                                pdf = generate_bill_pdf(bill_no, manual_bill, book_no, bill_date_display,
+                                                       dev_name, dev_address, dev_mobile, pooja, amount,
+                                                       amman_base64=amman_img)
+                                if pdf:
+                                    st.download_button("📥 Download PDF", data=pdf, file_name=f"Bill_{bill_no}.pdf", mime="application/pdf")
+                                else:
+                                    st.error("PDF generation failed")
+                        
+                        with colB:
+                            wa_num = dev_mobile or (guest_mobile if dev_type == "Guest" else "")
+                            if wa_num:
+                                wa_msg = build_bill_whatsapp_message(bill_no, bill_date_display, dev_name, pooja, amount, manual_bill, book_no)
+                                st.markdown(f'<a href="{make_whatsapp_link(wa_num, wa_msg)}" target="_blank" style="display:inline-block; background:#25D366; color:white; padding:10px 20px; border-radius:10px; text-decoration:none; width:100%; text-align:center; margin-bottom:10px;">📲 Send via WhatsApp</a>', unsafe_allow_html=True)
+                                if st.button("📋 Copy Bill Message"):
+                                    st.code(wa_msg, language="text")
+                                    st.success("Message copied! You can paste it in WhatsApp.")
+                            else:
+                                st.warning("No mobile number for WhatsApp")
+    
+    # ==================== TAB 2: BILL HISTORY WITH SEARCH ====================
     with tab2:
         st.subheader("Bill History")
-        from_date_str = st.text_input("From Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()-timedelta(30)))
-        to_date_str = st.text_input("To Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()))
+        
+        # Search filters
+        col_search1, col_search2, col_search3 = st.columns(3)
+        with col_search1:
+            search_bill_no = st.text_input("🔍 Search by Bill No", placeholder="Enter bill number...")
+        with col_search2:
+            search_name = st.text_input("🔍 Search by Name", placeholder="Enter devotee/guest name...")
+        with col_search3:
+            search_mobile = st.text_input("🔍 Search by Mobile", placeholder="Enter mobile number...")
+        
+        # Date range filters
+        col_date1, col_date2 = st.columns(2)
+        with col_date1:
+            from_date_str = st.text_input("From Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today() - timedelta(30)), placeholder="DD/MM/YYYY")
+        with col_date2:
+            to_date_str = st.text_input("To Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()), placeholder="DD/MM/YYYY")
+        
         from_date = parse_date_ddmmyyyy(from_date_str) if from_date_str else None
         to_date = parse_date_ddmmyyyy(to_date_str) if to_date_str else None
+        
         if from_date and to_date:
-            bills = supabase.table('bills').select('*').gte('bill_date',date_to_db(from_date)).lte('bill_date',date_to_db(to_date)).order('bill_date',desc=True).execute()
-            if bills.data:
-                for bill in bills.data:
-                    bill_display_date = format_date_ddmmyyyy(datetime.strptime(bill['bill_date'],'%Y-%m-%d').date())
-                    with st.expander(f"🧾 {bill['bill_no']} - {bill.get('guest_name') or 'Registered'} - ₹{bill['amount']} - {bill_display_date}"):
-                        col1, col2 = st.columns([3,1])
+            # Fetch bills
+            query = supabase.table('bills').select('*').gte('bill_date', date_to_db(from_date)).lte('bill_date', date_to_db(to_date)).order('bill_date', desc=True)
+            bills_response = query.execute()
+            bills = bills_response.data if bills_response.data else []
+            
+            # Apply additional filters
+            filtered_bills = []
+            for bill in bills:
+                # Get name for filtering
+                bill_name = bill.get('guest_name', '')
+                if bill.get('devotee_type') == 'registered' and bill.get('devotee_id'):
+                    dev = supabase.table('devotees').select('name').eq('id', bill['devotee_id']).execute()
+                    if dev.data:
+                        bill_name = dev.data[0]['name']
+                
+                # Apply filters
+                if search_bill_no and search_bill_no.lower() not in bill['bill_no'].lower():
+                    continue
+                if search_name and search_name.lower() not in bill_name.lower():
+                    continue
+                if search_mobile:
+                    mobile = bill.get('guest_mobile', '')
+                    if bill.get('devotee_type') == 'registered' and bill.get('devotee_id'):
+                        dev = supabase.table('devotees').select('mobile_no').eq('id', bill['devotee_id']).execute()
+                        if dev.data and dev.data[0].get('mobile_no'):
+                            mobile = dev.data[0]['mobile_no']
+                    if search_mobile not in mobile:
+                        continue
+                
+                filtered_bills.append(bill)
+            
+            if filtered_bills:
+                st.info(f"Found {len(filtered_bills)} bills")
+                
+                for bill in filtered_bills:
+                    # Get devotee name
+                    bill_name = bill.get('guest_name', '')
+                    bill_mobile = bill.get('guest_mobile', '')
+                    bill_address = bill.get('guest_address', '')
+                    
+                    if bill.get('devotee_type') == 'registered' and bill.get('devotee_id'):
+                        dev = supabase.table('devotees').select('name,mobile_no,address').eq('id', bill['devotee_id']).execute()
+                        if dev.data:
+                            bill_name = dev.data[0]['name']
+                            bill_mobile = dev.data[0].get('mobile_no', '')
+                            bill_address = dev.data[0].get('address', '')
+                    
+                    bill_display_date = format_date_ddmmyyyy(datetime.strptime(bill['bill_date'], '%Y-%m-%d').date())
+                    
+                    with st.expander(f"🧾 {bill['bill_no']} - {bill_name} - ₹{bill['amount']} - {bill_display_date}"):
+                        col1, col2 = st.columns([3, 1])
                         with col1:
-                            st.write(f"**Manual Bill:** {bill.get('manual_bill_no','N/A')}")
-                            st.write(f"**Book No:** {bill.get('bill_book_no','N/A')}")
+                            st.write(f"**Bill No:** {bill['bill_no']}")
+                            st.write(f"**Manual Bill:** {bill.get('manual_bill_no', 'N/A')}")
+                            st.write(f"**Book No:** {bill.get('bill_book_no', 'N/A')}")
+                            st.write(f"**Date:** {bill_display_date}")
+                            st.write(f"**Name:** {bill_name}")
+                            st.write(f"**Address:** {bill_address}")
+                            st.write(f"**Mobile:** {bill_mobile}")
                             st.write(f"**Pooja:** {bill['pooja_type']}")
                             st.write(f"**Amount:** ₹{bill['amount']:,.2f}")
-                            st.write(f"**Payment:** {bill.get('payment_mode','cash')}")
+                            st.write(f"**Payment:** {bill.get('payment_mode', 'cash')}")
                         with col2:
                             if st.button("🗑️ Delete", key=f"del_bill_{bill['id']}"):
-                                supabase.table('bills').delete().eq('id',bill['id']).execute()
+                                supabase.table('bills').delete().eq('id', bill['id']).execute()
                                 st.rerun()
+                        
+                        # PDF download button
                         if PDF_AVAILABLE:
-                            pdf = generate_bill_pdf(bill['bill_no'],bill.get('manual_bill_no',''),bill.get('bill_book_no',''),bill_display_date,
-                                                   bill.get('guest_name',''),bill.get('guest_address',''),bill.get('guest_mobile',''),
-                                                   bill['pooja_type'],bill['amount'],amman_base64=amman_img)
+                            pdf = generate_bill_pdf(bill['bill_no'], bill.get('manual_bill_no', ''), bill.get('bill_book_no', ''),
+                                                   bill_display_date, bill_name, bill_address, bill_mobile,
+                                                   bill['pooja_type'], bill['amount'], amman_base64=amman_img)
                             if pdf:
-                                st.download_button("📥 PDF", pdf, f"Bill_{bill['bill_no']}.pdf", mime="application/pdf", key=f"pdf_{bill['id']}")
+                                st.download_button("📥 Download PDF", data=pdf, file_name=f"Bill_{bill['bill_no']}.pdf", mime="application/pdf", key=f"pdf_{bill['id']}")
             else:
-                st.info("No bills found")
+                st.info("No bills found matching your criteria")
         else:
-            st.warning("Invalid date range")
+            st.warning("Please enter valid date range")
 
 # ============================================================
 # POOJA MANAGEMENT (Full)
