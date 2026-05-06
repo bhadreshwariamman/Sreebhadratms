@@ -911,7 +911,54 @@ def billing_page():
     
     # ==================== TAB 1: NEW BILL ====================
     with tab1:
-        # We'll use a container for the whole form to keep everything together
+        # Radio button outside the form – toggles UI instantly
+        dev_type = st.radio("Devotee Type", ["Registered", "Guest"], key="dev_type_radio", index=0)
+        
+        # Conditional UI that updates immediately when the radio changes
+        if dev_type == "Registered":
+            st.markdown("### 🔍 Search Devotee")
+            search_by = st.selectbox("Search by", ["Name", "Mobile No", "Address"], key="search_by")
+            search_term = st.text_input(f"Enter {search_by}", key="search_term")
+            
+            devotee_id = None
+            dev_name = ""
+            dev_mobile = ""
+            dev_address = ""
+            
+            if search_term:
+                query = supabase.table('devotees').select('id,name,mobile_no,address')
+                if search_by == "Name":
+                    query = query.ilike('name', f'%{search_term}%')
+                elif search_by == "Mobile No":
+                    query = query.ilike('mobile_no', f'%{search_term}%')
+                else:
+                    query = query.ilike('address', f'%{search_term}%')
+                res = query.limit(10).execute()
+                
+                if res.data:
+                    dev_options = {f"{d['name']} - {d.get('mobile_no', '')}": d for d in res.data}
+                    selected_label = st.selectbox("Select Devotee", list(dev_options.keys()), key="select_devotee")
+                    selected_dev = dev_options[selected_label]
+                    devotee_id = selected_dev['id']
+                    dev_name = selected_dev['name']
+                    dev_mobile = selected_dev.get('mobile_no', '')
+                    dev_address = selected_dev.get('address', '')
+                    st.success(f"Selected: {dev_name}")
+                else:
+                    st.warning("No devotees found")
+        
+        else:  # Guest
+            st.markdown("### 👤 Guest Details")
+            guest_name = st.text_input("Guest Name *", key="guest_name")
+            guest_mobile = st.text_input("Mobile", key="guest_mobile")
+            guest_address = st.text_area("Address", key="guest_address")
+            
+            devotee_id = None
+            dev_name = guest_name
+            dev_mobile = guest_mobile
+            dev_address = guest_address
+        
+        # Form (all other inputs) – placed after the radio, so it's always visible
         with st.form(key="bill_form"):
             col1, col2 = st.columns(2)
             
@@ -929,66 +976,9 @@ def billing_page():
                 payment = st.selectbox("Payment Mode", ["cash", "card", "upi", "bank"])
             
             with col2:
-                # Radio button – note the key is not strictly needed, but helps avoid conflicts
-                dev_type = st.radio("Devotee Type", ["Registered", "Guest"], key="dev_type_radio", index=0)
-                
-                # ------------------------------------------------
-                # REGISTERED: show search interface
-                # ------------------------------------------------
-                if dev_type == "Registered":
-                    st.markdown("### Search Devotee")
-                    search_by = st.selectbox("Search by", ["Name", "Mobile No", "Address"], key="search_by")
-                    search_term = st.text_input(f"Enter {search_by}", key="search_term")
-                    
-                    devotee_id = None
-                    dev_name = ""
-                    dev_mobile = ""
-                    dev_address = ""
-                    
-                    if search_term:
-                        query = supabase.table('devotees').select('id,name,mobile_no,address')
-                        if search_by == "Name":
-                            query = query.ilike('name', f'%{search_term}%')
-                        elif search_by == "Mobile No":
-                            query = query.ilike('mobile_no', f'%{search_term}%')
-                        else:
-                            query = query.ilike('address', f'%{search_term}%')
-                        res = query.limit(10).execute()
-                        
-                        if res.data:
-                            dev_options = {}
-                            for d in res.data:
-                                label = f"{d['name']} - {d.get('mobile_no', '')}"
-                                dev_options[label] = d
-                            selected_label = st.selectbox("Select Devotee", list(dev_options.keys()))
-                            selected_dev = dev_options[selected_label]
-                            devotee_id = selected_dev['id']
-                            dev_name = selected_dev['name']
-                            dev_mobile = selected_dev.get('mobile_no', '')
-                            dev_address = selected_dev.get('address', '')
-                            st.success(f"Selected: {dev_name}")
-                        else:
-                            st.warning("No devotees found")
-                
-                # ------------------------------------------------
-                # GUEST: show manual entry fields
-                # ------------------------------------------------
-                else:  # dev_type == "Guest"
-                    st.markdown("### Guest Details")
-                    # Use unique keys to avoid interference with registered fields
-                    guest_name = st.text_input("Guest Name *", key="guest_name_input")
-                    guest_mobile = st.text_input("Mobile", key="guest_mobile_input")
-                    guest_address = st.text_area("Address", key="guest_address_input")
-                    
-                    devotee_id = None
-                    dev_name = guest_name
-                    dev_mobile = guest_mobile
-                    dev_address = guest_address
-                
-                # Debug: show current mode (you can remove this line later)
-                st.caption(f"Current mode: {dev_type}")  # <-- Remove after confirming guest fields appear
+                # Just a placeholder – the main fields are already shown above
+                st.caption(f"Selected devotee type: {dev_type}")
             
-            # Submit button
             submitted = st.form_submit_button("Generate Bill", use_container_width=True)
             
             if submitted:
@@ -1063,11 +1053,10 @@ def billing_page():
                             else:
                                 st.warning("No mobile number for WhatsApp")
     
-    # ==================== TAB 2: BILL HISTORY with MANUAL BILL NO SEARCH ====================
+    # ==================== TAB 2: BILL HISTORY (including Manual Bill No search) ====================
     with tab2:
         st.subheader("Bill History")
         
-        # Search filters – include Manual Bill No
         col_search1, col_search2, col_search3, col_search4 = st.columns(4)
         with col_search1:
             search_bill_no = st.text_input("🔍 Bill No", placeholder="Bill number...")
@@ -1094,7 +1083,6 @@ def billing_page():
             
             filtered_bills = []
             for bill in bills:
-                # Get name and mobile for registered devotees
                 bill_name = bill.get('guest_name', '')
                 bill_mobile = bill.get('guest_mobile', '')
                 if bill.get('devotee_type') == 'registered' and bill.get('devotee_id'):
@@ -1103,7 +1091,6 @@ def billing_page():
                         bill_name = dev.data[0]['name']
                         bill_mobile = dev.data[0].get('mobile_no', '')
                 
-                # Apply filters
                 if search_bill_no and search_bill_no.lower() not in bill['bill_no'].lower():
                     continue
                 if search_manual_bill and search_manual_bill.lower() not in bill.get('manual_bill_no', '').lower():
@@ -1117,7 +1104,6 @@ def billing_page():
             if filtered_bills:
                 st.info(f"Found {len(filtered_bills)} bills")
                 for bill in filtered_bills:
-                    # Get full details for display
                     bill_name = bill.get('guest_name', '')
                     bill_mobile = bill.get('guest_mobile', '')
                     bill_address = bill.get('guest_address', '')
@@ -1157,7 +1143,6 @@ def billing_page():
                 st.info("No bills found matching your criteria")
         else:
             st.warning("Please enter valid date range")
-
 # ============================================================
 # POOJA MANAGEMENT (Full)
 # ============================================================
