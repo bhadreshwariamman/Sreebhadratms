@@ -911,7 +911,6 @@ def billing_page():
     
     # ==================== TAB 1: NEW BILL ====================
     with tab1:
-        # Use a form with a unique key that resets after submission
         with st.form(key="bill_form", clear_on_submit=True):
             col1, col2 = st.columns(2)
             
@@ -960,22 +959,21 @@ def billing_page():
                             st.success(f"Selected: {dev_name}")
                         else:
                             st.warning("No devotees found")
-                            devotee_id = None
-                else:
-                    devotee_id = None
+                else:  # Guest
+                    st.markdown("### Guest Details")
                     guest_name = st.text_input("Guest Name *")
                     guest_mobile = st.text_input("Mobile")
                     guest_address = st.text_area("Address")
+                    devotee_id = None
                     dev_name = guest_name
                     dev_mobile = guest_mobile
                     dev_address = guest_address
             
-            # Submit button inside the form - fields will auto-clear on success
             submitted = st.form_submit_button("Generate Bill", type="primary")
             
             if submitted:
                 # Validation
-                if dev_type == "Guest" and not guest_name:
+                if dev_type == "Guest" and (not dev_name or dev_name.strip() == ""):
                     st.error("Enter guest name")
                 elif amount <= 0:
                     st.error("Invalid amount")
@@ -993,9 +991,9 @@ def billing_page():
                             'bill_book_no': book_no,
                             'devotee_type': 'registered' if dev_type == "Registered" else 'guest',
                             'devotee_id': devotee_id if dev_type == "Registered" else None,
-                            'guest_name': guest_name if dev_type == "Guest" else None,
-                            'guest_mobile': guest_mobile if dev_type == "Guest" else None,
-                            'guest_address': guest_address if dev_type == "Guest" else None,
+                            'guest_name': dev_name if dev_type == "Guest" else None,
+                            'guest_mobile': dev_mobile if dev_type == "Guest" else None,
+                            'guest_address': dev_address if dev_type == "Guest" else None,
                             'pooja_type': pooja,
                             'amount': amount,
                             'bill_date': date_to_db(bill_date),
@@ -1036,7 +1034,7 @@ def billing_page():
                                     st.error("PDF generation failed")
                         
                         with colB:
-                            wa_num = dev_mobile or (guest_mobile if dev_type == "Guest" else "")
+                            wa_num = dev_mobile
                             if wa_num:
                                 wa_msg = build_bill_whatsapp_message(bill_no, bill_date_display, dev_name, pooja, amount, manual_bill, book_no)
                                 st.markdown(f'<a href="{make_whatsapp_link(wa_num, wa_msg)}" target="_blank" style="display:inline-block; background:#25D366; color:white; padding:10px 20px; border-radius:10px; text-decoration:none; width:100%; text-align:center; margin-bottom:10px;">📲 Send via WhatsApp</a>', unsafe_allow_html=True)
@@ -1070,46 +1068,36 @@ def billing_page():
         to_date = parse_date_ddmmyyyy(to_date_str) if to_date_str else None
         
         if from_date and to_date:
-            # Fetch bills
             query = supabase.table('bills').select('*').gte('bill_date', date_to_db(from_date)).lte('bill_date', date_to_db(to_date)).order('bill_date', desc=True)
             bills_response = query.execute()
             bills = bills_response.data if bills_response.data else []
             
-            # Apply additional filters
             filtered_bills = []
             for bill in bills:
-                # Get name for filtering
+                # Get name and mobile for filtering
                 bill_name = bill.get('guest_name', '')
+                bill_mobile = bill.get('guest_mobile', '')
                 if bill.get('devotee_type') == 'registered' and bill.get('devotee_id'):
-                    dev = supabase.table('devotees').select('name').eq('id', bill['devotee_id']).execute()
+                    dev = supabase.table('devotees').select('name,mobile_no').eq('id', bill['devotee_id']).execute()
                     if dev.data:
                         bill_name = dev.data[0]['name']
+                        bill_mobile = dev.data[0].get('mobile_no', '')
                 
-                # Apply filters
                 if search_bill_no and search_bill_no.lower() not in bill['bill_no'].lower():
                     continue
                 if search_name and search_name.lower() not in bill_name.lower():
                     continue
-                if search_mobile:
-                    mobile = bill.get('guest_mobile', '')
-                    if bill.get('devotee_type') == 'registered' and bill.get('devotee_id'):
-                        dev = supabase.table('devotees').select('mobile_no').eq('id', bill['devotee_id']).execute()
-                        if dev.data and dev.data[0].get('mobile_no'):
-                            mobile = dev.data[0]['mobile_no']
-                    if search_mobile not in mobile:
-                        continue
-                
+                if search_mobile and search_mobile not in bill_mobile:
+                    continue
                 filtered_bills.append(bill)
             
             if filtered_bills:
                 st.info(f"Found {len(filtered_bills)} bills")
-                
                 for bill in filtered_bills:
-                    # Get devotee name
+                    # Get full details for display
                     bill_name = bill.get('guest_name', '')
                     bill_mobile = bill.get('guest_mobile', '')
                     bill_address = bill.get('guest_address', '')
-                    
                     if bill.get('devotee_type') == 'registered' and bill.get('devotee_id'):
                         dev = supabase.table('devotees').select('name,mobile_no,address').eq('id', bill['devotee_id']).execute()
                         if dev.data:
@@ -1118,7 +1106,6 @@ def billing_page():
                             bill_address = dev.data[0].get('address', '')
                     
                     bill_display_date = format_date_ddmmyyyy(datetime.strptime(bill['bill_date'], '%Y-%m-%d').date())
-                    
                     with st.expander(f"🧾 {bill['bill_no']} - {bill_name} - ₹{bill['amount']} - {bill_display_date}"):
                         col1, col2 = st.columns([3, 1])
                         with col1:
@@ -1137,7 +1124,6 @@ def billing_page():
                                 supabase.table('bills').delete().eq('id', bill['id']).execute()
                                 st.rerun()
                         
-                        # PDF download button
                         if PDF_AVAILABLE:
                             pdf = generate_bill_pdf(bill['bill_no'], bill.get('manual_bill_no', ''), bill.get('bill_book_no', ''),
                                                    bill_display_date, bill_name, bill_address, bill_mobile,
