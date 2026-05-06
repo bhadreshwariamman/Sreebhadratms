@@ -911,6 +911,10 @@ def billing_page():
     
     # ==================== TAB 1: NEW BILL ====================
     with tab1:
+        # Radio button outside the form to allow immediate UI update
+        dev_type = st.radio("Devotee Type", ["Registered", "Guest"], index=0, key="dev_type_radio")
+        
+        # Now start the form
         with st.form(key="bill_form"):
             col1, col2 = st.columns(2)
             
@@ -928,9 +932,6 @@ def billing_page():
                 payment = st.selectbox("Payment Mode", ["cash", "card", "upi", "bank"])
             
             with col2:
-                dev_type = st.radio("Devotee Type", ["Registered", "Guest"], index=0)
-                
-                # ----- Registered devotee: search -----
                 if dev_type == "Registered":
                     st.markdown("### Search Devotee")
                     search_by = st.selectbox("Search by", ["Name", "Mobile No", "Address"])
@@ -952,7 +953,6 @@ def billing_page():
                         res = query.limit(10).execute()
                         
                         if res.data:
-                            # Build a dictionary for selectbox
                             dev_options = {}
                             for d in res.data:
                                 label = f"{d['name']} - {d.get('mobile_no', '')}"
@@ -966,8 +966,6 @@ def billing_page():
                             st.success(f"Selected: {dev_name}")
                         else:
                             st.warning("No devotees found")
-                
-                # ----- Guest: enter details -----
                 else:  # Guest
                     st.markdown("### Guest Details")
                     guest_name = st.text_input("Guest Name *")
@@ -1052,7 +1050,7 @@ def billing_page():
                             else:
                                 st.warning("No mobile number for WhatsApp")
     
-    # ==================== TAB 2: BILL HISTORY (unchanged, functional) ====================
+    # ==================== TAB 2: BILL HISTORY ====================
     with tab2:
         st.subheader("Bill History")
         col_search1, col_search2, col_search3 = st.columns(3)
