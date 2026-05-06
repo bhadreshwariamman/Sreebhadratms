@@ -911,10 +911,7 @@ def billing_page():
     
     # ==================== TAB 1: NEW BILL ====================
     with tab1:
-        # Radio button outside the form to allow immediate UI update
-        dev_type = st.radio("Devotee Type", ["Registered", "Guest"], index=0, key="dev_type_radio")
-        
-        # Now start the form
+        # Use a form without clear_on_submit so radio state persists
         with st.form(key="bill_form"):
             col1, col2 = st.columns(2)
             
@@ -932,10 +929,14 @@ def billing_page():
                 payment = st.selectbox("Payment Mode", ["cash", "card", "upi", "bank"])
             
             with col2:
+                # Radio button for devotee type – using a key to ensure state is tracked
+                dev_type = st.radio("Devotee Type", ["Registered", "Guest"], key="dev_type_radio", index=0)
+                
+                # ----- Registered devotee: search interface -----
                 if dev_type == "Registered":
                     st.markdown("### Search Devotee")
-                    search_by = st.selectbox("Search by", ["Name", "Mobile No", "Address"])
-                    search_term = st.text_input(f"Enter {search_by}")
+                    search_by = st.selectbox("Search by", ["Name", "Mobile No", "Address"], key="search_by")
+                    search_term = st.text_input(f"Enter {search_by}", key="search_term")
                     
                     devotee_id = None
                     dev_name = ""
@@ -966,16 +967,21 @@ def billing_page():
                             st.success(f"Selected: {dev_name}")
                         else:
                             st.warning("No devotees found")
-                else:  # Guest
+                
+                # ----- Guest: manual entry fields (FIXED – now they show) -----
+                else:  # dev_type == "Guest"
                     st.markdown("### Guest Details")
-                    guest_name = st.text_input("Guest Name *")
-                    guest_mobile = st.text_input("Mobile")
-                    guest_address = st.text_area("Address")
+                    # Use unique keys to avoid conflicts with registered fields
+                    guest_name = st.text_input("Guest Name *", key="guest_name_input")
+                    guest_mobile = st.text_input("Mobile", key="guest_mobile_input")
+                    guest_address = st.text_area("Address", key="guest_address_input")
+                    
                     devotee_id = None
                     dev_name = guest_name
                     dev_mobile = guest_mobile
                     dev_address = guest_address
             
+            # Submit button
             submitted = st.form_submit_button("Generate Bill", use_container_width=True)
             
             if submitted:
@@ -1050,16 +1056,20 @@ def billing_page():
                             else:
                                 st.warning("No mobile number for WhatsApp")
     
-    # ==================== TAB 2: BILL HISTORY ====================
+    # ==================== TAB 2: BILL HISTORY with MANUAL BILL NO SEARCH ====================
     with tab2:
         st.subheader("Bill History")
-        col_search1, col_search2, col_search3 = st.columns(3)
+        
+        # Search filters – added Manual Bill No search
+        col_search1, col_search2, col_search3, col_search4 = st.columns(4)
         with col_search1:
-            search_bill_no = st.text_input("🔍 Search by Bill No", placeholder="Enter bill number...")
+            search_bill_no = st.text_input("🔍 Bill No", placeholder="Bill number...")
         with col_search2:
-            search_name = st.text_input("🔍 Search by Name", placeholder="Enter devotee/guest name...")
+            search_manual_bill = st.text_input("🔍 Manual Bill No", placeholder="Manual bill number...")
         with col_search3:
-            search_mobile = st.text_input("🔍 Search by Mobile", placeholder="Enter mobile number...")
+            search_name = st.text_input("🔍 Name", placeholder="Devotee/guest name...")
+        with col_search4:
+            search_mobile = st.text_input("🔍 Mobile", placeholder="Mobile number...")
         
         col_date1, col_date2 = st.columns(2)
         with col_date1:
@@ -1077,6 +1087,7 @@ def billing_page():
             
             filtered_bills = []
             for bill in bills:
+                # Get name and mobile for registered devotees
                 bill_name = bill.get('guest_name', '')
                 bill_mobile = bill.get('guest_mobile', '')
                 if bill.get('devotee_type') == 'registered' and bill.get('devotee_id'):
@@ -1085,7 +1096,10 @@ def billing_page():
                         bill_name = dev.data[0]['name']
                         bill_mobile = dev.data[0].get('mobile_no', '')
                 
+                # Apply filters
                 if search_bill_no and search_bill_no.lower() not in bill['bill_no'].lower():
+                    continue
+                if search_manual_bill and search_manual_bill.lower() not in bill.get('manual_bill_no', '').lower():
                     continue
                 if search_name and search_name.lower() not in bill_name.lower():
                     continue
@@ -1096,6 +1110,7 @@ def billing_page():
             if filtered_bills:
                 st.info(f"Found {len(filtered_bills)} bills")
                 for bill in filtered_bills:
+                    # Get full details for display
                     bill_name = bill.get('guest_name', '')
                     bill_mobile = bill.get('guest_mobile', '')
                     bill_address = bill.get('guest_address', '')
@@ -1111,7 +1126,7 @@ def billing_page():
                         col1, col2 = st.columns([3, 1])
                         with col1:
                             st.write(f"**Bill No:** {bill['bill_no']}")
-                            st.write(f"**Manual Bill:** {bill.get('manual_bill_no', 'N/A')}")
+                            st.write(f"**Manual Bill No:** {bill.get('manual_bill_no', 'N/A')}")
                             st.write(f"**Book No:** {bill.get('bill_book_no', 'N/A')}")
                             st.write(f"**Date:** {bill_display_date}")
                             st.write(f"**Name:** {bill_name}")
