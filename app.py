@@ -909,12 +909,16 @@ def billing_page():
     tab1, tab2 = st.tabs(["🧾 New Bill", "📋 Bill History"])
     amman_img = get_amman_image()
     
+    # Initialize session state for last generated bill
+    if 'last_bill' not in st.session_state:
+        st.session_state.last_bill = None
+    
     # ==================== TAB 1: NEW BILL ====================
     with tab1:
-        # Radio button outside the form – toggles UI instantly
+        # Radio button outside form (instant toggle)
         dev_type = st.radio("Devotee Type", ["Registered", "Guest"], key="dev_type_radio", index=0)
         
-        # Conditional UI that updates immediately when the radio changes
+        # Conditional UI (search or guest fields)
         if dev_type == "Registered":
             st.markdown("### 🔍 Search Devotee")
             search_by = st.selectbox("Search by", ["Name", "Mobile No", "Address"], key="search_by")
@@ -946,8 +950,7 @@ def billing_page():
                     st.success(f"Selected: {dev_name}")
                 else:
                     st.warning("No devotees found")
-        
-        else:  # Guest
+        else:
             st.markdown("### 👤 Guest Details")
             guest_name = st.text_input("Guest Name *", key="guest_name")
             guest_mobile = st.text_input("Mobile", key="guest_mobile")
@@ -958,7 +961,7 @@ def billing_page():
             dev_mobile = guest_mobile
             dev_address = guest_address
         
-        # Form (all other inputs) – placed after the radio, so it's always visible
+        # Form for bill details (no download buttons inside)
         with st.form(key="bill_form"):
             col1, col2 = st.columns(2)
             
@@ -976,13 +979,14 @@ def billing_page():
                 payment = st.selectbox("Payment Mode", ["cash", "card", "upi", "bank"])
             
             with col2:
-                # Just a placeholder – the main fields are already shown above
-                st.caption(f"Selected devotee type: {dev_type}")
+                # Placeholder to show selected devotee info
+                if dev_name:
+                    st.caption(f"Selected: {dev_name}")
             
             submitted = st.form_submit_button("Generate Bill", use_container_width=True)
             
             if submitted:
-                # Validation
+                # Validation and processing
                 if dev_type == "Guest" and (not dev_name or dev_name.strip() == ""):
                     st.error("Please enter guest name")
                 elif amount <= 0:
@@ -1011,49 +1015,72 @@ def billing_page():
                         }
                         
                         supabase.table('bills').insert(data).execute()
+                        
+                        # Generate PDF and store in session state
+                        pdf_bytes = None
+                        if PDF_AVAILABLE:
+                            pdf_bytes = generate_bill_pdf(bill_no, manual_bill, book_no, bill_date_display,
+                                                         dev_name, dev_address, dev_mobile, pooja, amount,
+                                                         amman_base64=amman_img)
+                        
+                        st.session_state.last_bill = {
+                            'bill_no': bill_no,
+                            'bill_date_display': bill_date_display,
+                            'dev_name': dev_name,
+                            'dev_address': dev_address,
+                            'dev_mobile': dev_mobile,
+                            'pooja': pooja,
+                            'amount': amount,
+                            'manual_bill': manual_bill,
+                            'book_no': book_no,
+                            'pdf_bytes': pdf_bytes
+                        }
+                        
                         st.success(f"✅ Bill generated! Bill No: {bill_no}")
                         st.balloons()
-                        
-                        # Display receipt
-                        st.markdown(f"""
-                        <div style='border:2px solid #667eea; padding:20px; border-radius:10px; background:white; margin:10px 0;'>
-                            <h3 style='text-align:center'>{TEMPLE_NAME}</h3>
-                            <p style='text-align:center'>{TEMPLE_TRUST}<br>{TEMPLE_ADDRESS}<br>✉ {TEMPLE_EMAIL}</p>
-                            <hr><h4 style='text-align:center'>BILL / RECEIPT</h4><hr>
-                            <p><strong>Bill No:</strong> {bill_no}<br>
-                            <strong>Date:</strong> {bill_date_display}<br>
-                            <strong>Name:</strong> {dev_name}<br>
-                            <strong>Address:</strong> {dev_address}<br>
-                            <strong>Mobile:</strong> {dev_mobile}<br>
-                            <strong>Pooja:</strong> {pooja}<br>
-                            <strong>Amount:</strong> {TEMPLE_CONFIG['currency']}{amount:,.2f}</p>
-                            <hr><p style='text-align:center'>🙏 Thank you! {TEMPLE_TAMIL} 🙏</p>
-                        </div>
-                        """, unsafe_allow_html=True)
-                        
-                        colA, colB = st.columns(2)
-                        with colA:
-                            if PDF_AVAILABLE:
-                                pdf = generate_bill_pdf(bill_no, manual_bill, book_no, bill_date_display,
-                                                       dev_name, dev_address, dev_mobile, pooja, amount,
-                                                       amman_base64=amman_img)
-                                if pdf:
-                                    st.download_button("📥 Download PDF", data=pdf, file_name=f"Bill_{bill_no}.pdf", mime="application/pdf")
-                                else:
-                                    st.error("PDF generation failed")
-                        
-                        with colB:
-                            wa_num = dev_mobile
-                            if wa_num and wa_num.strip():
-                                wa_msg = build_bill_whatsapp_message(bill_no, bill_date_display, dev_name, pooja, amount, manual_bill, book_no)
-                                st.markdown(f'<a href="{make_whatsapp_link(wa_num, wa_msg)}" target="_blank" style="display:inline-block; background:#25D366; color:white; padding:10px 20px; border-radius:10px; text-decoration:none; width:100%; text-align:center; margin-bottom:10px;">📲 Send via WhatsApp</a>', unsafe_allow_html=True)
-                                if st.button("📋 Copy Bill Message"):
-                                    st.code(wa_msg, language="text")
-                                    st.success("Message copied! You can paste it in WhatsApp.")
-                            else:
-                                st.warning("No mobile number for WhatsApp")
+                        st.rerun()  # Rerun to show the buttons outside form
+        
+        # Display last generated bill receipt and buttons (outside form)
+        if st.session_state.last_bill:
+            bill = st.session_state.last_bill
+            st.markdown(f"""
+            <div style='border:2px solid #667eea; padding:20px; border-radius:10px; background:white; margin:10px 0;'>
+                <h3 style='text-align:center'>{TEMPLE_NAME}</h3>
+                <p style='text-align:center'>{TEMPLE_TRUST}<br>{TEMPLE_ADDRESS}<br>✉ {TEMPLE_EMAIL}</p>
+                <hr><h4 style='text-align:center'>BILL / RECEIPT</h4><hr>
+                <p><strong>Bill No:</strong> {bill['bill_no']}<br>
+                <strong>Date:</strong> {bill['bill_date_display']}<br>
+                <strong>Name:</strong> {bill['dev_name']}<br>
+                <strong>Address:</strong> {bill['dev_address']}<br>
+                <strong>Mobile:</strong> {bill['dev_mobile']}<br>
+                <strong>Pooja:</strong> {bill['pooja']}<br>
+                <strong>Amount:</strong> {TEMPLE_CONFIG['currency']}{bill['amount']:,.2f}</p>
+                <hr><p style='text-align:center'>🙏 Thank you! {TEMPLE_TAMIL} 🙏</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            colA, colB = st.columns(2)
+            with colA:
+                if bill['pdf_bytes']:
+                    st.download_button("📥 Download PDF", data=bill['pdf_bytes'], file_name=f"Bill_{bill['bill_no']}.pdf", mime="application/pdf", key="download_pdf")
+                else:
+                    st.error("PDF generation failed")
+            with colB:
+                wa_num = bill['dev_mobile']
+                if wa_num and wa_num.strip():
+                    wa_msg = build_bill_whatsapp_message(bill['bill_no'], bill['bill_date_display'], bill['dev_name'], bill['pooja'], bill['amount'], bill['manual_bill'], bill['book_no'])
+                    st.markdown(f'<a href="{make_whatsapp_link(wa_num, wa_msg)}" target="_blank" style="display:inline-block; background:#25D366; color:white; padding:10px 20px; border-radius:10px; text-decoration:none; width:100%; text-align:center; margin-bottom:10px;">📲 Send via WhatsApp</a>', unsafe_allow_html=True)
+                    if st.button("📋 Copy Bill Message"):
+                        st.code(wa_msg, language="text")
+                        st.success("Message copied! You can paste it in WhatsApp.")
+                else:
+                    st.warning("No mobile number for WhatsApp")
+            
+            if st.button("Clear"):
+                st.session_state.last_bill = None
+                st.rerun()
     
-    # ==================== TAB 2: BILL HISTORY (including Manual Bill No search) ====================
+    # ==================== TAB 2: BILL HISTORY (with Manual Bill No search) ====================
     with tab2:
         st.subheader("Bill History")
         
