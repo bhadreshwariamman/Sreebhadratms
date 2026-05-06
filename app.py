@@ -911,7 +911,8 @@ def billing_page():
     
     # ==================== TAB 1: NEW BILL ====================
     with tab1:
-        with st.form(key="bill_form", clear_on_submit=True):
+        # We'll use a form without key or with key but not clear_on_submit to preserve radio state
+        with st.form(key="bill_form"):
             col1, col2 = st.columns(2)
             
             with col1:
@@ -927,8 +928,9 @@ def billing_page():
                 payment = st.selectbox("Payment Mode", ["cash", "card", "upi", "bank"])
             
             with col2:
-                dev_type = st.radio("Devotee Type", ["Registered", "Guest"])
+                dev_type = st.radio("Devotee Type", ["Registered", "Guest"], index=0)
                 
+                # Conditional fields based on dev_type
                 if dev_type == "Registered":
                     st.markdown("### Search Devotee")
                     search_by = st.selectbox("Search by", ["Name", "Mobile No", "Address"])
@@ -961,15 +963,15 @@ def billing_page():
                             st.warning("No devotees found")
                 else:  # Guest
                     st.markdown("### Guest Details")
-                    guest_name = st.text_input("Guest Name *")
-                    guest_mobile = st.text_input("Mobile")
-                    guest_address = st.text_area("Address")
+                    guest_name = st.text_input("Guest Name *", key="guest_name_input")
+                    guest_mobile = st.text_input("Mobile", key="guest_mobile_input")
+                    guest_address = st.text_area("Address", key="guest_address_input")
                     devotee_id = None
                     dev_name = guest_name
                     dev_mobile = guest_mobile
                     dev_address = guest_address
             
-            submitted = st.form_submit_button("Generate Bill", type="primary")
+            submitted = st.form_submit_button("Generate Bill", use_container_width=True)
             
             if submitted:
                 # Validation
@@ -1043,12 +1045,15 @@ def billing_page():
                                     st.success("Message copied! You can paste it in WhatsApp.")
                             else:
                                 st.warning("No mobile number for WhatsApp")
+        
+        # After the form, manually clear fields? We'll rely on the fact that the form doesn't clear automatically,
+        # but we can add a "Reset Form" button if needed. However, for now, the radio should work.
+        # Optionally, we could use st.experimental_rerun or a session state to reset, but not required.
     
-    # ==================== TAB 2: BILL HISTORY WITH SEARCH ====================
+    # ==================== TAB 2: BILL HISTORY (unchanged, same as before) ====================
     with tab2:
         st.subheader("Bill History")
         
-        # Search filters
         col_search1, col_search2, col_search3 = st.columns(3)
         with col_search1:
             search_bill_no = st.text_input("🔍 Search by Bill No", placeholder="Enter bill number...")
@@ -1057,7 +1062,6 @@ def billing_page():
         with col_search3:
             search_mobile = st.text_input("🔍 Search by Mobile", placeholder="Enter mobile number...")
         
-        # Date range filters
         col_date1, col_date2 = st.columns(2)
         with col_date1:
             from_date_str = st.text_input("From Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today() - timedelta(30)), placeholder="DD/MM/YYYY")
@@ -1074,7 +1078,6 @@ def billing_page():
             
             filtered_bills = []
             for bill in bills:
-                # Get name and mobile for filtering
                 bill_name = bill.get('guest_name', '')
                 bill_mobile = bill.get('guest_mobile', '')
                 if bill.get('devotee_type') == 'registered' and bill.get('devotee_id'):
@@ -1094,7 +1097,6 @@ def billing_page():
             if filtered_bills:
                 st.info(f"Found {len(filtered_bills)} bills")
                 for bill in filtered_bills:
-                    # Get full details for display
                     bill_name = bill.get('guest_name', '')
                     bill_mobile = bill.get('guest_mobile', '')
                     bill_address = bill.get('guest_address', '')
