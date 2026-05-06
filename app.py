@@ -911,7 +911,7 @@ def billing_page():
     
     # ==================== TAB 1: NEW BILL ====================
     with tab1:
-        # Use a form without clear_on_submit so radio state persists
+        # We'll use a container for the whole form to keep everything together
         with st.form(key="bill_form"):
             col1, col2 = st.columns(2)
             
@@ -929,10 +929,12 @@ def billing_page():
                 payment = st.selectbox("Payment Mode", ["cash", "card", "upi", "bank"])
             
             with col2:
-                # Radio button for devotee type – using a key to ensure state is tracked
+                # Radio button – note the key is not strictly needed, but helps avoid conflicts
                 dev_type = st.radio("Devotee Type", ["Registered", "Guest"], key="dev_type_radio", index=0)
                 
-                # ----- Registered devotee: search interface -----
+                # ------------------------------------------------
+                # REGISTERED: show search interface
+                # ------------------------------------------------
                 if dev_type == "Registered":
                     st.markdown("### Search Devotee")
                     search_by = st.selectbox("Search by", ["Name", "Mobile No", "Address"], key="search_by")
@@ -968,10 +970,12 @@ def billing_page():
                         else:
                             st.warning("No devotees found")
                 
-                # ----- Guest: manual entry fields (FIXED – now they show) -----
+                # ------------------------------------------------
+                # GUEST: show manual entry fields
+                # ------------------------------------------------
                 else:  # dev_type == "Guest"
                     st.markdown("### Guest Details")
-                    # Use unique keys to avoid conflicts with registered fields
+                    # Use unique keys to avoid interference with registered fields
                     guest_name = st.text_input("Guest Name *", key="guest_name_input")
                     guest_mobile = st.text_input("Mobile", key="guest_mobile_input")
                     guest_address = st.text_area("Address", key="guest_address_input")
@@ -980,6 +984,9 @@ def billing_page():
                     dev_name = guest_name
                     dev_mobile = guest_mobile
                     dev_address = guest_address
+                
+                # Debug: show current mode (you can remove this line later)
+                st.caption(f"Current mode: {dev_type}")  # <-- Remove after confirming guest fields appear
             
             # Submit button
             submitted = st.form_submit_button("Generate Bill", use_container_width=True)
@@ -1060,7 +1067,7 @@ def billing_page():
     with tab2:
         st.subheader("Bill History")
         
-        # Search filters – added Manual Bill No search
+        # Search filters – include Manual Bill No
         col_search1, col_search2, col_search3, col_search4 = st.columns(4)
         with col_search1:
             search_bill_no = st.text_input("🔍 Bill No", placeholder="Bill number...")
