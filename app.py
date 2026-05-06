@@ -911,7 +911,6 @@ def billing_page():
     
     # ==================== TAB 1: NEW BILL ====================
     with tab1:
-        # We'll use a form without key or with key but not clear_on_submit to preserve radio state
         with st.form(key="bill_form"):
             col1, col2 = st.columns(2)
             
@@ -919,22 +918,24 @@ def billing_page():
                 manual_bill = st.text_input("Manual Bill No (optional)")
                 book_no = st.text_input("Book No (optional)")
                 bill_date_str = st.text_input("Bill Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()), placeholder="DD/MM/YYYY")
+                
                 pooja_types = supabase.table('pooja_types').select('name,amount').eq('is_active', True).execute()
                 pooja_options = {p['name']: p['amount'] for p in pooja_types.data} if pooja_types.data else {}
                 pooja = st.selectbox("Pooja Type", list(pooja_options.keys()))
                 default_amount = pooja_options.get(pooja, 0)
-                amount = st.number_input("Amount", min_value=0.0, value=default_amount, step=10.0, key="bill_amount")
+                amount = st.number_input("Amount", min_value=0.0, value=default_amount, step=10.0)
                 st.info(f"Amount: {TEMPLE_CONFIG['currency']}{amount}")
                 payment = st.selectbox("Payment Mode", ["cash", "card", "upi", "bank"])
             
             with col2:
                 dev_type = st.radio("Devotee Type", ["Registered", "Guest"], index=0)
                 
-                # Conditional fields based on dev_type
+                # ----- Registered devotee: search -----
                 if dev_type == "Registered":
                     st.markdown("### Search Devotee")
                     search_by = st.selectbox("Search by", ["Name", "Mobile No", "Address"])
                     search_term = st.text_input(f"Enter {search_by}")
+                    
                     devotee_id = None
                     dev_name = ""
                     dev_mobile = ""
@@ -951,21 +952,27 @@ def billing_page():
                         res = query.limit(10).execute()
                         
                         if res.data:
-                            dev_opts = {f"{d['name']} - {d.get('mobile_no', '')}": d for d in res.data}
-                            selected = st.selectbox("Select Devotee", list(dev_opts.keys()))
-                            dev = dev_opts[selected]
-                            devotee_id = dev['id']
-                            dev_name = dev['name']
-                            dev_mobile = dev.get('mobile_no', '')
-                            dev_address = dev.get('address', '')
+                            # Build a dictionary for selectbox
+                            dev_options = {}
+                            for d in res.data:
+                                label = f"{d['name']} - {d.get('mobile_no', '')}"
+                                dev_options[label] = d
+                            selected_label = st.selectbox("Select Devotee", list(dev_options.keys()))
+                            selected_dev = dev_options[selected_label]
+                            devotee_id = selected_dev['id']
+                            dev_name = selected_dev['name']
+                            dev_mobile = selected_dev.get('mobile_no', '')
+                            dev_address = selected_dev.get('address', '')
                             st.success(f"Selected: {dev_name}")
                         else:
                             st.warning("No devotees found")
+                
+                # ----- Guest: enter details -----
                 else:  # Guest
                     st.markdown("### Guest Details")
-                    guest_name = st.text_input("Guest Name *", key="guest_name_input")
-                    guest_mobile = st.text_input("Mobile", key="guest_mobile_input")
-                    guest_address = st.text_area("Address", key="guest_address_input")
+                    guest_name = st.text_input("Guest Name *")
+                    guest_mobile = st.text_input("Mobile")
+                    guest_address = st.text_area("Address")
                     devotee_id = None
                     dev_name = guest_name
                     dev_mobile = guest_mobile
@@ -976,9 +983,9 @@ def billing_page():
             if submitted:
                 # Validation
                 if dev_type == "Guest" and (not dev_name or dev_name.strip() == ""):
-                    st.error("Enter guest name")
+                    st.error("Please enter guest name")
                 elif amount <= 0:
-                    st.error("Invalid amount")
+                    st.error("Amount must be greater than 0")
                 else:
                     bill_date = parse_date_ddmmyyyy(bill_date_str)
                     if not bill_date:
@@ -1003,7 +1010,7 @@ def billing_page():
                         }
                         
                         supabase.table('bills').insert(data).execute()
-                        st.success(f"✅ Bill generated successfully! Bill No: {bill_no}")
+                        st.success(f"✅ Bill generated! Bill No: {bill_no}")
                         st.balloons()
                         
                         # Display receipt
@@ -1023,7 +1030,6 @@ def billing_page():
                         </div>
                         """, unsafe_allow_html=True)
                         
-                        # PDF and WhatsApp buttons
                         colA, colB = st.columns(2)
                         with colA:
                             if PDF_AVAILABLE:
@@ -1037,7 +1043,7 @@ def billing_page():
                         
                         with colB:
                             wa_num = dev_mobile
-                            if wa_num:
+                            if wa_num and wa_num.strip():
                                 wa_msg = build_bill_whatsapp_message(bill_no, bill_date_display, dev_name, pooja, amount, manual_bill, book_no)
                                 st.markdown(f'<a href="{make_whatsapp_link(wa_num, wa_msg)}" target="_blank" style="display:inline-block; background:#25D366; color:white; padding:10px 20px; border-radius:10px; text-decoration:none; width:100%; text-align:center; margin-bottom:10px;">📲 Send via WhatsApp</a>', unsafe_allow_html=True)
                                 if st.button("📋 Copy Bill Message"):
@@ -1045,15 +1051,10 @@ def billing_page():
                                     st.success("Message copied! You can paste it in WhatsApp.")
                             else:
                                 st.warning("No mobile number for WhatsApp")
-        
-        # After the form, manually clear fields? We'll rely on the fact that the form doesn't clear automatically,
-        # but we can add a "Reset Form" button if needed. However, for now, the radio should work.
-        # Optionally, we could use st.experimental_rerun or a session state to reset, but not required.
     
-    # ==================== TAB 2: BILL HISTORY (unchanged, same as before) ====================
+    # ==================== TAB 2: BILL HISTORY (unchanged, functional) ====================
     with tab2:
         st.subheader("Bill History")
-        
         col_search1, col_search2, col_search3 = st.columns(3)
         with col_search1:
             search_bill_no = st.text_input("🔍 Search by Bill No", placeholder="Enter bill number...")
