@@ -912,6 +912,8 @@ def billing_page():
     # Initialize session state for last generated bill
     if 'last_bill' not in st.session_state:
         st.session_state.last_bill = None
+    if 'edit_bill_id' not in st.session_state:
+        st.session_state.edit_bill_id = None
     
     # ==================== TAB 1: NEW BILL ====================
     with tab1:
@@ -979,14 +981,12 @@ def billing_page():
                 payment = st.selectbox("Payment Mode", ["cash", "card", "upi", "bank"])
             
             with col2:
-                # Placeholder to show selected devotee info
                 if dev_name:
                     st.caption(f"Selected: {dev_name}")
             
             submitted = st.form_submit_button("Generate Bill", use_container_width=True)
             
             if submitted:
-                # Validation and processing
                 if dev_type == "Guest" and (not dev_name or dev_name.strip() == ""):
                     st.error("Please enter guest name")
                 elif amount <= 0:
@@ -1016,7 +1016,6 @@ def billing_page():
                         
                         supabase.table('bills').insert(data).execute()
                         
-                        # Generate PDF and store in session state
                         pdf_bytes = None
                         if PDF_AVAILABLE:
                             pdf_bytes = generate_bill_pdf(bill_no, manual_bill, book_no, bill_date_display,
@@ -1038,7 +1037,7 @@ def billing_page():
                         
                         st.success(f"✅ Bill generated! Bill No: {bill_no}")
                         st.balloons()
-                        st.rerun()  # Rerun to show the buttons outside form
+                        st.rerun()
         
         # Display last generated bill receipt and buttons (outside form)
         if st.session_state.last_bill:
@@ -1080,7 +1079,7 @@ def billing_page():
                 st.session_state.last_bill = None
                 st.rerun()
     
-    # ==================== TAB 2: BILL HISTORY (with Manual Bill No search) ====================
+    # ==================== TAB 2: BILL HISTORY with EDIT & DELETE ====================
     with tab2:
         st.subheader("Bill History")
         
@@ -1131,6 +1130,7 @@ def billing_page():
             if filtered_bills:
                 st.info(f"Found {len(filtered_bills)} bills")
                 for bill in filtered_bills:
+                    # Get full details for display
                     bill_name = bill.get('guest_name', '')
                     bill_mobile = bill.get('guest_mobile', '')
                     bill_address = bill.get('guest_address', '')
@@ -1142,6 +1142,8 @@ def billing_page():
                             bill_address = dev.data[0].get('address', '')
                     
                     bill_display_date = format_date_ddmmyyyy(datetime.strptime(bill['bill_date'], '%Y-%m-%d').date())
+                    
+                    # Show expander for each bill
                     with st.expander(f"🧾 {bill['bill_no']} - {bill_name} - ₹{bill['amount']} - {bill_display_date}"):
                         col1, col2 = st.columns([3, 1])
                         with col1:
@@ -1156,16 +1158,79 @@ def billing_page():
                             st.write(f"**Amount:** ₹{bill['amount']:,.2f}")
                             st.write(f"**Payment:** {bill.get('payment_mode', 'cash')}")
                         with col2:
+                            # Edit button
+                            if st.button("✏️ Edit", key=f"edit_bill_{bill['id']}"):
+                                st.session_state.edit_bill_id = bill['id']
+                                st.rerun()
+                            # Delete button
                             if st.button("🗑️ Delete", key=f"del_bill_{bill['id']}"):
                                 supabase.table('bills').delete().eq('id', bill['id']).execute()
                                 st.rerun()
                         
+                        # PDF download button (safe here, not inside a form)
                         if PDF_AVAILABLE:
                             pdf = generate_bill_pdf(bill['bill_no'], bill.get('manual_bill_no', ''), bill.get('bill_book_no', ''),
                                                    bill_display_date, bill_name, bill_address, bill_mobile,
                                                    bill['pooja_type'], bill['amount'], amman_base64=amman_img)
                             if pdf:
                                 st.download_button("📥 Download PDF", data=pdf, file_name=f"Bill_{bill['bill_no']}.pdf", mime="application/pdf", key=f"pdf_{bill['id']}")
+                        
+                        # Edit form (shown only if this bill is being edited)
+                        if st.session_state.edit_bill_id == bill['id']:
+                            st.markdown("---")
+                            st.subheader("Edit Bill")
+                            with st.form(key=f"edit_form_{bill['id']}"):
+                                # Editable fields
+                                new_manual_bill = st.text_input("Manual Bill No", value=bill.get('manual_bill_no', ''))
+                                new_book_no = st.text_input("Book No", value=bill.get('bill_book_no', ''))
+                                
+                                # Pooja type dropdown
+                                pooja_types = supabase.table('pooja_types').select('name,amount').eq('is_active', True).execute()
+                                pooja_options = {p['name']: p['amount'] for p in pooja_types.data} if pooja_types.data else {}
+                                new_pooja = st.selectbox("Pooja Type", list(pooja_options.keys()), index=list(pooja_options.keys()).index(bill['pooja_type']) if bill['pooja_type'] in pooja_options else 0)
+                                new_amount = st.number_input("Amount", min_value=0.0, value=float(bill['amount']), step=10.0)
+                                new_payment = st.selectbox("Payment Mode", ["cash", "card", "upi", "bank"], index=["cash", "card", "upi", "bank"].index(bill.get('payment_mode', 'cash')))
+                                
+                                # If guest bill, allow editing guest details
+                                if bill['devotee_type'] == 'guest':
+                                    new_guest_name = st.text_input("Guest Name", value=bill.get('guest_name', ''))
+                                    new_guest_mobile = st.text_input("Guest Mobile", value=bill.get('guest_mobile', ''))
+                                    new_guest_address = st.text_area("Guest Address", value=bill.get('guest_address', ''))
+                                else:
+                                    new_guest_name = bill.get('guest_name')
+                                    new_guest_mobile = bill.get('guest_mobile')
+                                    new_guest_address = bill.get('guest_address')
+                                    st.info("Devotee information cannot be changed here. To change devotee, delete and create a new bill.")
+                                
+                                col_save, col_cancel = st.columns(2)
+                                with col_save:
+                                    save_clicked = st.form_submit_button("💾 Save Changes")
+                                with col_cancel:
+                                    cancel_clicked = st.form_submit_button("❌ Cancel")
+                                
+                                if save_clicked:
+                                    # Prepare update data
+                                    update_data = {
+                                        'manual_bill_no': new_manual_bill,
+                                        'bill_book_no': new_book_no,
+                                        'pooja_type': new_pooja,
+                                        'amount': new_amount,
+                                        'payment_mode': new_payment
+                                    }
+                                    if bill['devotee_type'] == 'guest':
+                                        update_data['guest_name'] = new_guest_name
+                                        update_data['guest_mobile'] = new_guest_mobile
+                                        update_data['guest_address'] = new_guest_address
+                                    
+                                    # Update in Supabase
+                                    supabase.table('bills').update(update_data).eq('id', bill['id']).execute()
+                                    st.success("Bill updated successfully!")
+                                    st.session_state.edit_bill_id = None
+                                    st.rerun()
+                                
+                                if cancel_clicked:
+                                    st.session_state.edit_bill_id = None
+                                    st.rerun()
             else:
                 st.info("No bills found matching your criteria")
         else:
