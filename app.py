@@ -1,4 +1,4 @@
-# app.py - Complete Temple Management System (Fully working PDF & WhatsApp)
+# app.py - Complete Temple Management System
 import streamlit as st
 import pandas as pd
 from datetime import datetime, date, timedelta
@@ -10,6 +10,7 @@ import io
 import urllib.parse
 import tempfile
 import os
+import re
 from supabase import create_client, Client
 
 # ============================================================
@@ -199,15 +200,20 @@ def get_amman_image():
     img = get_temple_setting('amman_image')
     if img and img.startswith('data:image'):
         return img
-    # Default PNG image as base64 (simple OM symbol – will work with FPDF)
-    # You can replace this with your own default PNG base64 if needed.
-    # For now, we'll use a small PNG of a lotus (data:image/png;base64,...)
-    # But to keep it simple, we'll return None and let the PDF skip the image.
-    # To make the PDF work without external image, we'll embed a simple text OM.
-    # Actually, better: we'll use a local file if exists, else skip.
-    # But since we can't guarantee cairosvg, we'll create a default PNG placeholder.
-    default_png_base64 = "iVBORw0KGgoAAAANSUhEUgAAAB4AAAAeCAYAAAA7MK6iAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAABISURBVEhL7ZXRCcAgDEPV6gjdQBEcQdFhHMRBHMzEfFIotVYtCn2/B5eUkJY0P7Lcbtkz9owsM7LMVpaZZWaZWWaWWVWWmdUys8wsM8vM+gA1tLpXwVcR2AAAAABJRU5ErkJggg=="
-    return "data:image/png;base64," + default_png_base64
+    default_svg = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300" width="200" height="200">
+    <defs><radialGradient id="glow" cx="50%" cy="50%" r="50%">
+        <stop offset="0%" stop-color="#fff8f0"/>
+        <stop offset="100%" stop-color="#ffcc80"/>
+    </radialGradient></defs>
+    <circle cx="150" cy="150" r="148" fill="url(#glow)" stroke="#ff6b35" stroke-width="4"/>
+    <circle cx="150" cy="150" r="100" fill="#fff4e6" stroke="#ff8c42" stroke-width="3"/>
+    <text x="150" y="100" text-anchor="middle" font-size="14" fill="#c62828" font-weight="bold">Om Amman</text>
+    <text x="150" y="135" text-anchor="middle" font-size="52">🙏</text>
+    <text x="150" y="170" text-anchor="middle" font-size="40">🪷</text>
+    <text x="150" y="210" text-anchor="middle" font-size="11" fill="#8B0000">Arulmigu Bhadreshwari</text>
+    <text x="150" y="225" text-anchor="middle" font-size="11" fill="#8B0000">Amman Kovil</text>
+    </svg>"""
+    return "data:image/svg+xml;base64," + base64.b64encode(default_svg.encode()).decode()
 
 def set_amman_image(base64_img):
     set_temple_setting('amman_image', base64_img)
@@ -304,7 +310,7 @@ def build_bill_whatsapp_message(bill_no, bill_date, name, pooja, amount, manual_
     )
 
 # ============================================================
-# PDF LIBRARY AND HELPER FUNCTIONS
+# PDF GENERATION (A5 Size)
 # ============================================================
 PDF_AVAILABLE = False
 try:
@@ -321,61 +327,9 @@ def sanitize_text(text):
     text = text.replace("–", "-").replace("—", "-").replace("‘", "'").replace("’", "'")
     return ''.join(c if ord(c) < 128 else ' ' for c in text)
 
-def save_base64_image_to_temp(base64_str):
-    """Save base64 image to temporary file and return path."""
-    if not base64_str:
-        return None
-    try:
-        if ',' in base64_str:
-            header, data = base64_str.split(',', 1)
-            if 'png' in header:
-                ext = '.png'
-            elif 'jpeg' in header or 'jpg' in header:
-                ext = '.jpg'
-            elif 'svg' in header:
-                ext = '.svg'
-            else:
-                ext = '.png'
-        else:
-            data = base64_str
-            ext = '.png'
-        img_data = base64.b64decode(data)
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
-        tmp.write(img_data)
-        tmp.close()
-        return tmp.name
-    except:
-        return None
-
-def convert_svg_to_png(svg_path):
-    """Convert SVG to PNG using cairosvg if available."""
-    try:
-        import cairosvg
-        png_path = svg_path.replace('.svg', '.png')
-        cairosvg.svg2png(url=svg_path, write_to=png_path)
-        return png_path
-    except:
-        return None
-
 def generate_bill_pdf(bill_no, manual_bill, bill_book, bill_date, name, address, mobile, pooja_type, amount, amman_base64=None):
     if not PDF_AVAILABLE:
         return None
-    
-    # Sanitize all text inputs
-    bill_no = sanitize_text(bill_no)
-    manual_bill = sanitize_text(manual_bill)
-    bill_book = sanitize_text(bill_book)
-    bill_date = sanitize_text(bill_date)
-    name = sanitize_text(name)
-    address = sanitize_text(address)
-    mobile = sanitize_text(mobile)
-    pooja_type = sanitize_text(pooja_type)
-    amount_str = sanitize_text(f"{amount:,.2f}")
-    temple_name_safe = sanitize_text(TEMPLE_NAME)
-    temple_trust_safe = sanitize_text(TEMPLE_TRUST)
-    temple_address_safe = sanitize_text(TEMPLE_ADDRESS)
-    temple_email_safe = sanitize_text(TEMPLE_EMAIL)
-    temple_tamil_safe = sanitize_text(TEMPLE_TAMIL)
     
     amman_img_path = None
     if amman_base64:
@@ -385,51 +339,89 @@ def generate_bill_pdf(bill_no, manual_bill, bill_book, bill_date, name, address,
             if png_path:
                 amman_img_path = png_path
     
-    pdf = FPDF()
+    # A5 size: 148mm width x 210mm height
+    pdf = FPDF(orientation='P', unit='mm', format='A5')
     pdf.add_page()
     
-    # Add Amman image centered
-    if amman_img_path and os.path.exists(amman_img_path) and amman_img_path.lower().endswith(('.png','.jpg','.jpeg')):
-        try:
-            pdf.image(amman_img_path, x=90, y=10, w=30)
-            pdf.ln(35)
-        except:
-            pdf.ln(10)
-    else:
-        pdf.ln(10)
+    # Reduced margins for A5
+    pdf.set_left_margin(8)
+    pdf.set_right_margin(8)
+    pdf.set_top_margin(8)
     
-    # Temple header
-    pdf.set_font('Helvetica', 'B', 16)
-    pdf.cell(0, 10, temple_name_safe, 0, 1, 'C')
-    pdf.set_font('Helvetica', '', 10)
-    pdf.cell(0, 6, temple_trust_safe, 0, 1, 'C')
-    pdf.cell(0, 6, temple_address_safe, 0, 1, 'C')
-    pdf.cell(0, 6, f"Email: {temple_email_safe}", 0, 1, 'C')
-    pdf.ln(5)
+    # Add Amman image centered (smaller for A5)
+    if amman_img_path and os.path.exists(amman_img_path):
+        try:
+            if amman_img_path.lower().endswith(('.png','.jpg','.jpeg')):
+                pdf.image(amman_img_path, x=59, y=5, w=30)  # Centered: (148-30)/2 = 59
+                pdf.ln(28)
+        except Exception as e:
+            print(f"Image error: {e}")
+            pdf.ln(8)
+    else:
+        pdf.ln(8)
+    
+    # Temple header (smaller fonts for A5)
     pdf.set_font('Helvetica', 'B', 12)
-    pdf.cell(0, 8, "BILL / RECEIPT", 0, 1, 'C')
-    pdf.ln(5)
-    pdf.set_font('Helvetica', '', 10)
-    pdf.cell(50, 8, f"Bill No: {bill_no}", 0, 0)
-    pdf.cell(0, 8, f"Date: {bill_date}", 0, 1)
+    pdf.cell(0, 5, sanitize_text(TEMPLE_NAME), 0, 1, 'C')
+    pdf.set_font('Helvetica', '', 8)
+    pdf.cell(0, 4, sanitize_text(TEMPLE_TRUST), 0, 1, 'C')
+    pdf.cell(0, 4, sanitize_text(TEMPLE_ADDRESS), 0, 1, 'C')
+    pdf.cell(0, 4, f"Email: {sanitize_text(TEMPLE_EMAIL)}", 0, 1, 'C')
+    pdf.ln(3)
+    
+    # Bill title
+    pdf.set_font('Helvetica', 'B', 11)
+    pdf.cell(0, 6, "BILL / RECEIPT", 0, 1, 'C')
+    pdf.ln(3)
+    
+    # Bill details - two columns for compact layout
+    pdf.set_font('Helvetica', '', 8)
+    pdf.cell(70, 5, f"Bill No: {sanitize_text(bill_no)}", 0, 0)
+    pdf.cell(0, 5, f"Date: {sanitize_text(bill_date)}", 0, 1)
+    
     if manual_bill:
-        pdf.cell(50, 8, f"Manual Bill: {manual_bill}", 0, 0)
+        pdf.cell(70, 5, f"Manual Bill: {sanitize_text(manual_bill)}", 0, 0)
     if bill_book:
-        pdf.cell(0, 8, f"Book No: {bill_book}", 0, 1)
-    pdf.ln(5)
-    pdf.cell(50, 8, f"Name: {name}", 0, 1)
+        pdf.cell(0, 5, f"Book No: {sanitize_text(bill_book)}", 0, 1)
+    else:
+        pdf.ln(4)
+    
+    pdf.ln(2)
+    
+    # Devotee details
+    pdf.set_font('Helvetica', 'B', 8)
+    pdf.cell(0, 5, "Devotee Details", 0, 1)
+    pdf.set_font('Helvetica', '', 8)
+    pdf.cell(0, 4, f"Name: {sanitize_text(name)}", 0, 1)
     if address:
-        pdf.cell(50, 8, f"Address: {address}", 0, 1)
+        pdf.cell(0, 4, f"Address: {sanitize_text(address)}", 0, 1)
     if mobile:
-        pdf.cell(50, 8, f"Mobile: {mobile}", 0, 1)
-    pdf.ln(5)
-    pdf.cell(50, 8, f"Pooja Type: {pooja_type}", 0, 1)
-    pdf.set_font('Helvetica', 'B', 12)
-    pdf.cell(50, 10, f"Amount: Rs. {amount_str}", 0, 1)
-    pdf.ln(10)
-    pdf.set_font('Helvetica', 'I', 8)
-    pdf.cell(0, 6, "Thank you for your contribution! May Goddess Bhadreshwari bless you!", 0, 1, 'C')
-    pdf.cell(0, 6, temple_tamil_safe, 0, 1, 'C')
+        pdf.cell(0, 4, f"Mobile: {sanitize_text(mobile)}", 0, 1)
+    
+    pdf.ln(2)
+    
+    # Pooja and Amount
+    pdf.set_font('Helvetica', 'B', 8)
+    pdf.cell(0, 5, "Pooja Details", 0, 1)
+    pdf.set_font('Helvetica', '', 8)
+    pdf.cell(0, 4, f"Pooja Type: {sanitize_text(pooja_type)}", 0, 1)
+    
+    amount_str = sanitize_text(f"{amount:,.2f}")
+    pdf.set_font('Helvetica', 'B', 11)
+    pdf.cell(0, 6, f"Amount: Rs. {amount_str}", 0, 1)
+    
+    pdf.ln(3)
+    
+    # Thank you message
+    pdf.set_font('Helvetica', 'I', 7)
+    pdf.cell(0, 4, "Thank you for your contribution!", 0, 1, 'C')
+    pdf.cell(0, 4, sanitize_text(TEMPLE_TAMIL), 0, 1, 'C')
+    
+    # Footer with address
+    pdf.ln(2)
+    pdf.set_font('Helvetica', '', 6)
+    pdf.cell(0, 3, sanitize_text(TEMPLE_ADDRESS), 0, 1, 'C')
+    pdf.cell(0, 3, f"Email: {sanitize_text(TEMPLE_EMAIL)}", 0, 1, 'C')
     
     # Clean up temp file
     if amman_img_path and os.path.exists(amman_img_path):
@@ -438,8 +430,8 @@ def generate_bill_pdf(bill_no, manual_bill, bill_book, bill_date, name, address,
         except:
             pass
     
-    # Return PDF as bytes
     return pdf.output(dest='S').encode('latin1')
+
 # ============================================================
 # LOGIN PAGE
 # ============================================================
@@ -452,50 +444,28 @@ def login_page():
     st.markdown("""
     <style>
     .stApp { background: linear-gradient(135deg, #0f0c29, #1a1a3e, #302b63, #4a1942); }
-    .login-container {
-        max-width: 480px;
-        margin: 60px auto;
-        padding: 40px;
-        background: rgba(255,255,255,0.12);
-        backdrop-filter: blur(15px);
-        border-radius: 30px;
-        text-align: center;
-        animation: float 6s ease-in-out infinite;
-    }
+    .login-container { max-width: 480px; margin: 60px auto; padding: 40px; background: rgba(255,255,255,0.12); backdrop-filter: blur(15px); border-radius: 30px; text-align: center; animation: float 6s ease-in-out infinite; }
     @keyframes float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
-    .amman-img {
-        width: 160px;
-        height: 160px;
-        border-radius: 50%;
-        border: 4px solid #ffd700;
-        display: block;
-        margin: 0 auto 20px auto;
-        animation: glow 3s ease-in-out infinite;
-    }
+    .amman-img { width: 160px; height: 160px; border-radius: 50%; border: 4px solid #ffd700; animation: glow 3s ease-in-out infinite; display: block; margin: 0 auto 20px auto; }
     @keyframes glow { 0%,100% { box-shadow: 0 0 20px rgba(255,215,0,0.4); } 50% { box-shadow: 0 0 50px rgba(255,215,0,0.8); } }
-    .temple-name { color: #ffd700; font-size: 1.5em; font-weight: 700; margin: 10px 0 5px; text-shadow: 0 2px 10px rgba(0,0,0,0.3); text-align: center; }
-    .temple-trust { color: #ffaa66; font-size: 0.9em; margin: 5px 0; text-align: center; }
-    .temple-address { color: #ddd; font-size: 0.8em; margin: 5px 0; text-align: center; }
-    .temple-email { color: #90caf9; font-size: 0.75em; margin: 5px 0; text-align: center; }
-    .tamil-text { color: #ffd966; font-size: 1em; font-weight: 600; margin: 15px 0 10px; animation: pulse 2s infinite; text-align: center; }
+    .temple-name { color: #ffd700; font-size: 1.5em; font-weight: 700; }
+    .temple-trust { color: #ffaa66; }
+    .temple-address, .temple-email { color: #ddd; }
+    .tamil-text { color: #ffd966; animation: pulse 2s infinite; }
     @keyframes pulse { 0%,100% { opacity: 0.7; } 50% { opacity: 1; } }
     .login-divider { height: 2px; background: linear-gradient(90deg, transparent, #ffd700, #ff6b35, #ffd700, transparent); margin: 20px 0; }
     </style>
     """, unsafe_allow_html=True)
-    
     col1, col2, col3 = st.columns([1,2,1])
     with col2:
         st.markdown('<div class="login-container">', unsafe_allow_html=True)
-        # Centered Amman image
-        st.markdown(f'<img src="{amman_img}" class="amman-img">', unsafe_allow_html=True)
-        # Centered text content
+        st.markdown(f'<div><img src="{amman_img}" class="amman-img"></div>', unsafe_allow_html=True)
         st.markdown(f'<div class="temple-name">🛕 {TEMPLE_NAME}</div>', unsafe_allow_html=True)
         st.markdown(f'<div class="temple-trust">{TEMPLE_TRUST}</div>', unsafe_allow_html=True)
         st.markdown(f'<div class="temple-address">📍 {TEMPLE_ADDRESS}</div>', unsafe_allow_html=True)
         st.markdown(f'<div class="temple-email">✉ {TEMPLE_EMAIL} | 📞 {TEMPLE_PHONE}</div>', unsafe_allow_html=True)
         st.markdown(f'<div class="tamil-text">🙏 {TEMPLE_TAMIL} 🙏</div>', unsafe_allow_html=True)
         st.markdown('<div class="login-divider"></div>', unsafe_allow_html=True)
-        
         with st.form("login_form"):
             username = st.text_input("👤 Username")
             password = st.text_input("🔑 Password", type="password")
@@ -517,8 +487,9 @@ def login_page():
                     except Exception as e:
                         st.error(f"Error: {e}")
         st.markdown('<div class="login-divider"></div>', unsafe_allow_html=True)
-        st.markdown(f'<div style="text-align:center; color:#aaa;">🔑 Default: admin / admin123<br>🪔 {TEMPLE_TAMIL} 🪔</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="color:#aaa;">🔑 Default: admin / admin123<br>🪔 {TEMPLE_TAMIL} 🪔</div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
+
 # ============================================================
 # HEADER & SIDEBAR
 # ============================================================
@@ -614,10 +585,13 @@ def dashboard_page():
                 st.info("No poojas scheduled")
         except: pass
 
+# ============================================================
+# DEVOTEE MANAGEMENT
+# ============================================================
 def devotee_management_page():
     render_header()
     tab1, tab2, tab3, tab4 = st.tabs(["➕ Register", "👨‍👩‍👧 Family Members", "📋 View All", "📤 Bulk Import"])
-
+    
     # ==================== TAB 1: REGISTER NEW DEVOTEE ====================
     with tab1:
         with st.form("reg_devotee"):
@@ -636,7 +610,7 @@ def devotee_management_page():
                 occupation = st.text_input("Occupation")
                 gothram = st.text_input("Gothram")
             photo = st.file_uploader("Photo", type=['jpg', 'png', 'jpeg'])
-
+            
             if st.form_submit_button("Register"):
                 if not name:
                     st.error("Name is required")
@@ -665,13 +639,10 @@ def devotee_management_page():
                             'gothram': gothram,
                             'photo_url': photo_b64
                         }
-                        try:
-                            supabase.table('devotees').insert(data).execute()
-                            st.success(f"✅ {name} registered! ID: {dev_id}")
-                            st.balloons()
-                        except Exception as e:
-                            st.error(f"Supabase error: {e}")
-
+                        supabase.table('devotees').insert(data).execute()
+                        st.success(f"✅ {name} registered! ID: {dev_id}")
+                        st.balloons()
+    
     # ==================== TAB 2: FAMILY MEMBERS ====================
     with tab2:
         devotees = supabase.table('devotees').select('id,name,mobile_no').execute()
@@ -679,7 +650,7 @@ def devotee_management_page():
             dev_opt = {f"{d['name']} - {d.get('mobile_no', '')}": d['id'] for d in devotees.data}
             selected = st.selectbox("Select Devotee (Head of Family)", list(dev_opt.keys()))
             dev_id = dev_opt[selected]
-
+            
             family = supabase.table('family_members').select('*').eq('devotee_id', dev_id).execute()
             if family.data:
                 st.markdown("**Existing Family Members:**")
@@ -692,7 +663,7 @@ def devotee_management_page():
                         st.rerun()
             else:
                 st.info("No family members added yet.")
-
+            
             with st.form("add_family"):
                 st.subheader("Add Family Member")
                 col1, col2 = st.columns(2)
@@ -703,7 +674,7 @@ def devotee_management_page():
                 with col2:
                     fm_wedding_str = st.text_input("Wedding Day (DD/MM/YYYY)", placeholder="DD/MM/YYYY")
                     fm_natchathiram = st.selectbox("Natchathiram", ["--"] + NATCHATHIRAM_LIST)
-
+                
                 if st.form_submit_button("Add Member"):
                     fm_dob = parse_date_ddmmyyyy(fm_dob_str) if fm_dob_str else None
                     fm_wedding = parse_date_ddmmyyyy(fm_wedding_str) if fm_wedding_str else None
@@ -724,7 +695,7 @@ def devotee_management_page():
                         st.rerun()
         else:
             st.warning("No devotees found. Please register a devotee first.")
-
+    
     # ==================== TAB 3: VIEW ALL DEVOTEES ====================
     with tab3:
         search = st.text_input("🔍 Search by name / mobile / address")
@@ -734,7 +705,7 @@ def devotee_management_page():
         res = query.execute()
         devotees = res.data if res.data else []
         st.write(f"**Total: {len(devotees)}**")
-
+        
         for d in devotees:
             with st.expander(f"👤 {d['name']} - {d['devotee_id']}"):
                 col1, col2 = st.columns(2)
@@ -751,19 +722,18 @@ def devotee_management_page():
                     st.write(f"🏠 Address: {d.get('address', 'N/A')}")
                 if d.get('photo_url'):
                     st.image(base64.b64decode(d['photo_url']), width=100)
-
+                
                 if st.button("🗑️ Delete", key=f"del_dev_{d['id']}"):
                     supabase.table('family_members').delete().eq('devotee_id', d['id']).execute()
                     supabase.table('devotee_yearly_pooja').delete().eq('devotee_id', d['id']).execute()
                     supabase.table('devotees').delete().eq('id', d['id']).execute()
                     st.rerun()
-
-    # ==================== TAB 4: BULK IMPORT (FIXED) ====================
+    
+    # ==================== TAB 4: BULK IMPORT ====================
     with tab4:
         st.markdown("### 📤 Bulk Import Devotees")
-        st.markdown("Upload CSV or Excel file. Required columns: Name, DOB (DD-MM-YYYY)")
-
-        # Download template
+        st.markdown("Download the template, fill it, and upload the file.")
+        
         template_columns = [
             "Name", "DOB (DD-MM-YYYY)", "Gender", "Mobile", "Email",
             "Address", "Natchathiram", "Wedding Day", "Occupation", "Gothram"
@@ -775,141 +745,133 @@ def devotee_management_page():
         template_df = pd.DataFrame(sample_data, columns=template_columns)
         csv = template_df.to_csv(index=False).encode('utf-8')
         st.download_button("📥 Download CSV Template", data=csv, file_name="devotee_bulk_template.csv", mime="text/csv", use_container_width=True)
-
+        
         uploaded_file = st.file_uploader("Upload CSV/Excel File", type=['csv', 'xlsx', 'xls'])
         if uploaded_file:
             try:
-                # Read file as strings
                 if uploaded_file.name.endswith('.csv'):
-                    df = pd.read_csv(uploaded_file, dtype=str)
+                    df = pd.read_csv(uploaded_file)
                 else:
-                    df = pd.read_excel(uploaded_file, dtype=str, keep_default_na=False)
-                    df = df.replace(r'^\s*$', pd.NA, regex=True)
-
+                    df = pd.read_excel(uploaded_file)
+                
                 df.columns = [col.strip() for col in df.columns]
-
-                # Validate required columns
-                if 'Name' not in df.columns:
-                    st.error("Missing 'Name' column")
-                    st.stop()
-                if 'DOB (DD-MM-YYYY)' not in df.columns:
-                    st.error("Missing 'DOB (DD-MM-YYYY)' column")
-                    st.stop()
-
-                st.subheader("Preview (first 10 rows)")
+                st.subheader("Preview of uploaded data")
                 st.dataframe(df.head(10), use_container_width=True)
-
-                # Date parser
-                def parse_flexible_date(value):
-                    if pd.isna(value) or value == '':
+                
+                def parse_flexible_date(date_str):
+                    if not date_str or str(date_str).lower() in ['nan', 'none', '']:
                         return None
-                    s = str(value).strip()
-                    if ' ' in s:
-                        s = s.split()[0]               # remove time
-                    s = s.replace('-', '/')            # unify separator
-                    for fmt in ('%d/%m/%Y', '%Y/%m/%d'):
-                        try:
-                            return datetime.strptime(s, fmt).date()
-                        except:
-                            continue
-                    return None
-
+                    date_str = str(date_str).strip()
+                    if ' ' in date_str:
+                        date_str = date_str.split()[0]
+                    try:
+                        return datetime.strptime(date_str, '%Y-%m-%d').date()
+                    except:
+                        pass
+                    if '-' in date_str:
+                        date_str = date_str.replace('-', '/')
+                    try:
+                        return datetime.strptime(date_str, '%d/%m/%Y').date()
+                    except:
+                        return None
+                
                 if st.button("🚀 Start Import", type="primary", use_container_width=True):
                     success_count = 0
                     error_list = []
-
+                    
+                    dob_col = None
+                    for col in ['DOB (DD-MM-YYYY)', 'DOB', 'Date of Birth']:
+                        if col in df.columns:
+                            dob_col = col
+                            break
+                    if dob_col is None:
+                        st.error("Could not find DOB column")
+                        st.stop()
+                    
+                    wedding_col = None
+                    for col in ['Wedding Day', 'WeddingDay', 'Wedding']:
+                        if col in df.columns:
+                            wedding_col = col
+                            break
+                    
                     for idx, row in df.iterrows():
                         try:
                             name = str(row.get('Name', '')).strip()
                             if not name or name.lower() == 'nan':
-                                error_list.append(f"Row {idx+2}: Name missing")
+                                error_list.append(f"Row {idx+2}: Name is required")
                                 continue
-
-                            # DOB
-                            dob_raw = row.get('DOB (DD-MM-YYYY)', '')
-                            dob = parse_flexible_date(dob_raw)
-                            if dob_raw and str(dob_raw).strip() and not dob:
-                                error_list.append(f"Row {idx+2}: Invalid DOB '{dob_raw}'")
+                            
+                            dob_str = str(row.get(dob_col, '')).strip()
+                            dob = parse_flexible_date(dob_str)
+                            if dob_str and dob_str.lower() not in ['nan', 'none', ''] and not dob:
+                                error_list.append(f"Row {idx+2}: Invalid DOB format: {dob_str}")
                                 continue
-
-                            # Wedding Day
+                            
                             wedding = None
-                            if 'Wedding Day' in df.columns:
-                                wedding_raw = row.get('Wedding Day', '')
-                                if wedding_raw and str(wedding_raw).strip():
-                                    wedding = parse_flexible_date(wedding_raw)
+                            if wedding_col:
+                                wedding_str = str(row.get(wedding_col, '')).strip()
+                                if wedding_str and wedding_str.lower() not in ['nan', 'none', '']:
+                                    wedding = parse_flexible_date(wedding_str)
                                     if not wedding:
-                                        error_list.append(f"Row {idx+2}: Invalid Wedding date '{wedding_raw}'")
+                                        error_list.append(f"Row {idx+2}: Invalid Wedding date format: {wedding_str}")
                                         continue
-
-                            # Other fields – convert empty strings to None
-                            gender = row.get('Gender', '')
-                            gender = gender if pd.notna(gender) and str(gender).strip() else None
-                            mobile = row.get('Mobile', '')
-                            mobile = mobile if pd.notna(mobile) and str(mobile).strip() else None
-                            email = row.get('Email', '')
-                            email = email if pd.notna(email) and str(email).strip() else None
-                            address = row.get('Address', '')
-                            address = address if pd.notna(address) and str(address).strip() else None
-                            natchathiram = row.get('Natchathiram', '')
-                            natchathiram = natchathiram if pd.notna(natchathiram) and str(natchathiram).strip() else None
-                            occupation = row.get('Occupation', '')
-                            occupation = occupation if pd.notna(occupation) and str(occupation).strip() else None
-                            gothram = row.get('Gothram', '')
-                            gothram = gothram if pd.notna(gothram) and str(gothram).strip() else None
-
+                            
+                            gender = str(row.get('Gender', '')).strip() if pd.notna(row.get('Gender')) else ''
+                            mobile = str(row.get('Mobile', '')).strip() if pd.notna(row.get('Mobile')) else ''
+                            email = str(row.get('Email', '')).strip() if pd.notna(row.get('Email')) else ''
+                            address = str(row.get('Address', '')).strip() if pd.notna(row.get('Address')) else ''
+                            natchathiram = str(row.get('Natchathiram', '')).strip() if pd.notna(row.get('Natchathiram')) else ''
+                            occupation = str(row.get('Occupation', '')).strip() if pd.notna(row.get('Occupation')) else ''
+                            gothram = str(row.get('Gothram', '')).strip() if pd.notna(row.get('Gothram')) else ''
+                            
                             devotee_id = generate_unique_id('DEV')
-
                             data = {
                                 'devotee_id': devotee_id,
                                 'name': name,
                                 'dob': date_to_db(dob) if dob else None,
-                                'gender': gender,
-                                'mobile_no': mobile,
-                                'whatsapp_no': mobile,   # fallback
-                                'email': email,
-                                'address': address,
-                                'natchathiram': natchathiram,
+                                'gender': gender if gender else None,
+                                'mobile_no': mobile if mobile else None,
+                                'whatsapp_no': mobile,
+                                'email': email if email else None,
+                                'address': address if address else None,
+                                'natchathiram': natchathiram if natchathiram else None,
                                 'wedding_day': date_to_db(wedding) if wedding else None,
-                                'occupation': occupation,
-                                'gothram': gothram
+                                'occupation': occupation if occupation else None,
+                                'gothram': gothram if gothram else None
                             }
-                            # Insert with explicit error capture
                             supabase.table('devotees').insert(data).execute()
                             success_count += 1
-
                         except Exception as e:
-                            # Display full Supabase error
                             error_list.append(f"Row {idx+2}: {str(e)}")
-
+                    
                     st.subheader("Import Results")
                     col1, col2 = st.columns(2)
                     with col1:
-                        st.metric("✅ Success", success_count)
+                        st.metric("✅ Successfully Imported", success_count)
                     with col2:
                         st.metric("❌ Errors", len(error_list))
-
                     if error_list:
-                        with st.expander("Error Details"):
-                            for err in error_list[:50]:
+                        with st.expander(f"View Errors ({len(error_list)})"):
+                            for err in error_list[:30]:
                                 st.error(err)
-                    if success_count:
-                        st.success(f"🎉 Added {success_count} devotees!")
+                            if len(error_list) > 30:
+                                st.warning(f"... and {len(error_list)-30} more errors")
+                    if success_count > 0:
+                        st.success(f"🎉 Successfully added {success_count} devotees!")
                         st.balloons()
                         time.sleep(1)
                         st.rerun()
-
             except Exception as e:
-                st.error(f"File reading error: {e}")
+                st.error(f"Error reading file: {str(e)}")
+
 # ============================================================
-# BILLING SYSTEM (Full with PDF & WhatsApp)
+# BILLING SYSTEM
 # ============================================================
 def billing_page():
     render_header()
     tab1, tab2 = st.tabs(["🧾 New Bill", "📋 Bill History"])
     amman_img = get_amman_image()
     
-    # Initialize session state for last generated bill
     if 'last_bill' not in st.session_state:
         st.session_state.last_bill = None
     if 'edit_bill_id' not in st.session_state:
@@ -917,10 +879,8 @@ def billing_page():
     
     # ==================== TAB 1: NEW BILL ====================
     with tab1:
-        # Radio button outside form (instant toggle)
         dev_type = st.radio("Devotee Type", ["Registered", "Guest"], key="dev_type_radio", index=0)
         
-        # Conditional UI (search or guest fields)
         if dev_type == "Registered":
             st.markdown("### 🔍 Search Devotee")
             search_by = st.selectbox("Search by", ["Name", "Mobile No", "Address"], key="search_by")
@@ -957,21 +917,17 @@ def billing_page():
             guest_name = st.text_input("Guest Name *", key="guest_name")
             guest_mobile = st.text_input("Mobile", key="guest_mobile")
             guest_address = st.text_area("Address", key="guest_address")
-            
             devotee_id = None
             dev_name = guest_name
             dev_mobile = guest_mobile
             dev_address = guest_address
         
-        # Form for bill details (no download buttons inside)
         with st.form(key="bill_form"):
             col1, col2 = st.columns(2)
-            
             with col1:
                 manual_bill = st.text_input("Manual Bill No (optional)")
                 book_no = st.text_input("Book No (optional)")
                 bill_date_str = st.text_input("Bill Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()), placeholder="DD/MM/YYYY")
-                
                 pooja_types = supabase.table('pooja_types').select('name,amount').eq('is_active', True).execute()
                 pooja_options = {p['name']: p['amount'] for p in pooja_types.data} if pooja_types.data else {}
                 pooja = st.selectbox("Pooja Type", list(pooja_options.keys()))
@@ -979,7 +935,6 @@ def billing_page():
                 amount = st.number_input("Amount", min_value=0.0, value=default_amount, step=10.0)
                 st.info(f"Amount: {TEMPLE_CONFIG['currency']}{amount}")
                 payment = st.selectbox("Payment Mode", ["cash", "card", "upi", "bank"])
-            
             with col2:
                 if dev_name:
                     st.caption(f"Selected: {dev_name}")
@@ -1034,12 +989,10 @@ def billing_page():
                             'book_no': book_no,
                             'pdf_bytes': pdf_bytes
                         }
-                        
                         st.success(f"✅ Bill generated! Bill No: {bill_no}")
                         st.balloons()
                         st.rerun()
         
-        # Display last generated bill receipt and buttons (outside form)
         if st.session_state.last_bill:
             bill = st.session_state.last_bill
             st.markdown(f"""
@@ -1079,7 +1032,7 @@ def billing_page():
                 st.session_state.last_bill = None
                 st.rerun()
     
-    # ==================== TAB 2: BILL HISTORY with EDIT & DELETE ====================
+    # ==================== TAB 2: BILL HISTORY ====================
     with tab2:
         st.subheader("Bill History")
         
@@ -1130,7 +1083,6 @@ def billing_page():
             if filtered_bills:
                 st.info(f"Found {len(filtered_bills)} bills")
                 for bill in filtered_bills:
-                    # Get full details for display
                     bill_name = bill.get('guest_name', '')
                     bill_mobile = bill.get('guest_mobile', '')
                     bill_address = bill.get('guest_address', '')
@@ -1142,8 +1094,6 @@ def billing_page():
                             bill_address = dev.data[0].get('address', '')
                     
                     bill_display_date = format_date_ddmmyyyy(datetime.strptime(bill['bill_date'], '%Y-%m-%d').date())
-                    
-                    # Show expander for each bill
                     with st.expander(f"🧾 {bill['bill_no']} - {bill_name} - ₹{bill['amount']} - {bill_display_date}"):
                         col1, col2 = st.columns([3, 1])
                         with col1:
@@ -1158,16 +1108,13 @@ def billing_page():
                             st.write(f"**Amount:** ₹{bill['amount']:,.2f}")
                             st.write(f"**Payment:** {bill.get('payment_mode', 'cash')}")
                         with col2:
-                            # Edit button
                             if st.button("✏️ Edit", key=f"edit_bill_{bill['id']}"):
                                 st.session_state.edit_bill_id = bill['id']
                                 st.rerun()
-                            # Delete button
                             if st.button("🗑️ Delete", key=f"del_bill_{bill['id']}"):
                                 supabase.table('bills').delete().eq('id', bill['id']).execute()
                                 st.rerun()
                         
-                        # PDF download button (safe here, not inside a form)
                         if PDF_AVAILABLE:
                             pdf = generate_bill_pdf(bill['bill_no'], bill.get('manual_bill_no', ''), bill.get('bill_book_no', ''),
                                                    bill_display_date, bill_name, bill_address, bill_mobile,
@@ -1175,23 +1122,23 @@ def billing_page():
                             if pdf:
                                 st.download_button("📥 Download PDF", data=pdf, file_name=f"Bill_{bill['bill_no']}.pdf", mime="application/pdf", key=f"pdf_{bill['id']}")
                         
-                        # Edit form (shown only if this bill is being edited)
                         if st.session_state.edit_bill_id == bill['id']:
                             st.markdown("---")
                             st.subheader("Edit Bill")
                             with st.form(key=f"edit_form_{bill['id']}"):
-                                # Editable fields
                                 new_manual_bill = st.text_input("Manual Bill No", value=bill.get('manual_bill_no', ''))
                                 new_book_no = st.text_input("Book No", value=bill.get('bill_book_no', ''))
                                 
-                                # Pooja type dropdown
                                 pooja_types = supabase.table('pooja_types').select('name,amount').eq('is_active', True).execute()
                                 pooja_options = {p['name']: p['amount'] for p in pooja_types.data} if pooja_types.data else {}
-                                new_pooja = st.selectbox("Pooja Type", list(pooja_options.keys()), index=list(pooja_options.keys()).index(bill['pooja_type']) if bill['pooja_type'] in pooja_options else 0)
+                                try:
+                                    current_index = list(pooja_options.keys()).index(bill['pooja_type'])
+                                except ValueError:
+                                    current_index = 0
+                                new_pooja = st.selectbox("Pooja Type", list(pooja_options.keys()), index=current_index)
                                 new_amount = st.number_input("Amount", min_value=0.0, value=float(bill['amount']), step=10.0)
                                 new_payment = st.selectbox("Payment Mode", ["cash", "card", "upi", "bank"], index=["cash", "card", "upi", "bank"].index(bill.get('payment_mode', 'cash')))
                                 
-                                # If guest bill, allow editing guest details
                                 if bill['devotee_type'] == 'guest':
                                     new_guest_name = st.text_input("Guest Name", value=bill.get('guest_name', ''))
                                     new_guest_mobile = st.text_input("Guest Mobile", value=bill.get('guest_mobile', ''))
@@ -1209,7 +1156,6 @@ def billing_page():
                                     cancel_clicked = st.form_submit_button("❌ Cancel")
                                 
                                 if save_clicked:
-                                    # Prepare update data
                                     update_data = {
                                         'manual_bill_no': new_manual_bill,
                                         'bill_book_no': new_book_no,
@@ -1222,7 +1168,6 @@ def billing_page():
                                         update_data['guest_mobile'] = new_guest_mobile
                                         update_data['guest_address'] = new_guest_address
                                     
-                                    # Update in Supabase
                                     supabase.table('bills').update(update_data).eq('id', bill['id']).execute()
                                     st.success("Bill updated successfully!")
                                     st.session_state.edit_bill_id = None
@@ -1235,8 +1180,9 @@ def billing_page():
                 st.info("No bills found matching your criteria")
         else:
             st.warning("Please enter valid date range")
+
 # ============================================================
-# POOJA MANAGEMENT (Full)
+# POOJA MANAGEMENT
 # ============================================================
 def pooja_management_page():
     render_header()
@@ -1246,7 +1192,7 @@ def pooja_management_page():
             with st.form("add_pt"):
                 name = st.text_input("Name")
                 amount = st.number_input("Amount", min_value=0.0)
-                duration = st.text_input("Duration")
+                duration = st.text_input("Duration (e.g., 30 min)")
                 desc = st.text_area("Description")
                 if st.form_submit_button("Add"):
                     if name:
@@ -1277,7 +1223,7 @@ def pooja_management_page():
                 p_name = st.text_input("Pooja Name")
                 p_time = st.text_input("Time (e.g., 09:00 AM)")
             with col2:
-                p_date_str = st.text_input("Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()))
+                p_date_str = st.text_input("Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()), placeholder="DD/MM/YYYY")
                 priest = st.text_input("Priest Name")
             notes = st.text_area("Notes")
             if st.form_submit_button("Schedule"):
@@ -1287,7 +1233,7 @@ def pooja_management_page():
                     st.rerun()
                 else:
                     st.error("Invalid date")
-        view_date_str = st.text_input("View Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()))
+        view_date_str = st.text_input("View Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()), placeholder="DD/MM/YYYY")
         view_date = parse_date_ddmmyyyy(view_date_str) if view_date_str else None
         if view_date:
             schedule = supabase.table('daily_pooja').select('*').eq('pooja_date',date_to_db(view_date)).execute()
@@ -1314,7 +1260,7 @@ def pooja_management_page():
             dev_id = dev_opt[selected]
             with st.form("add_sub"):
                 pooja_type = st.selectbox("Pooja", [p['name'] for p in supabase.table('pooja_types').select('name').execute().data or []])
-                pooja_date_str = st.text_input("Pooja Date (DD/MM/YYYY)")
+                pooja_date_str = st.text_input("Pooja Date (DD/MM/YYYY)", placeholder="DD/MM/YYYY")
                 amount = st.number_input("Amount", min_value=0.0)
                 desc = st.text_area("Description")
                 if st.form_submit_button("Add Subscription"):
@@ -1338,7 +1284,7 @@ def pooja_management_page():
             st.warning("No devotees found")
 
 # ============================================================
-# EXPENSE TRACKING (Full)
+# EXPENSE TRACKING
 # ============================================================
 def expense_page():
     render_header()
@@ -1382,14 +1328,12 @@ def expense_page():
     with tab2:
         st.subheader("Expense Report")
         
-        # Date range filters
         col_date1, col_date2 = st.columns(2)
         with col_date1:
             from_date_str = st.text_input("From Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today() - timedelta(30)), placeholder="DD/MM/YYYY")
         with col_date2:
             to_date_str = st.text_input("To Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()), placeholder="DD/MM/YYYY")
         
-        # Filter by expense type
         exp_types = supabase.table('expense_types').select('name').execute()
         exp_list = ["All"] + [e['name'] for e in exp_types.data] if exp_types.data else ["All"]
         filter_type = st.selectbox("Filter by Expense Type", exp_list)
@@ -1398,21 +1342,17 @@ def expense_page():
         to_date = parse_date_ddmmyyyy(to_date_str) if to_date_str else None
         
         if from_date and to_date:
-            # Fetch expenses
             query = supabase.table('expenses').select('*').gte('expense_date', date_to_db(from_date)).lte('expense_date', date_to_db(to_date)).order('expense_date', desc=True)
             response = query.execute()
             expenses = response.data if response.data else []
             
-            # Apply expense type filter
             if filter_type != "All":
                 expenses = [e for e in expenses if e.get('expense_type') == filter_type]
             
             if expenses:
-                # Calculate total
                 total_amount = sum(e['amount'] for e in expenses)
                 st.metric("💰 Total Expenses", f"{TEMPLE_CONFIG['currency']}{total_amount:,.2f}")
                 
-                # Prepare data for display (exactly the requested columns)
                 report_data = []
                 for exp in expenses:
                     report_data.append({
@@ -1427,7 +1367,6 @@ def expense_page():
                 df = pd.DataFrame(report_data)
                 st.dataframe(df, use_container_width=True, hide_index=True)
                 
-                # Export to CSV
                 csv = df.to_csv(index=False).encode('utf-8')
                 st.download_button(
                     "📥 Export to CSV",
@@ -1436,7 +1375,6 @@ def expense_page():
                     mime="text/csv"
                 )
                 
-                # Individual expense cards with delete option
                 st.subheader("Expense Details")
                 for exp in expenses:
                     with st.expander(f"🧾 {exp['expense_type']} - {TEMPLE_CONFIG['currency']}{exp['amount']:,.2f} - {format_date_ddmmyyyy(datetime.strptime(exp['expense_date'], '%Y-%m-%d').date())}"):
@@ -1458,7 +1396,7 @@ def expense_page():
             st.warning("Please enter valid date range")
 
 # ============================================================
-# DONATIONS (Full)
+# DONATIONS
 # ============================================================
 def donations_page():
     render_header()
@@ -1473,7 +1411,7 @@ def donations_page():
             with col2:
                 amount = st.number_input("Amount *", min_value=0.0)
                 don_type = st.selectbox("Type", ["General","Temple Construction","Annadhanam","Festival","Other"])
-                date_don_str = st.text_input("Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()))
+                date_don_str = st.text_input("Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()), placeholder="DD/MM/YYYY")
             purpose = st.text_area("Purpose")
             payment = st.selectbox("Payment Mode", ["cash","card","upi","bank"])
             if st.form_submit_button("Record"):
@@ -1490,8 +1428,8 @@ def donations_page():
                 else:
                     st.error("Invalid date or missing fields")
     with tab2:
-        from_date_str = st.text_input("From Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()-timedelta(365)))
-        to_date_str = st.text_input("To Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()))
+        from_date_str = st.text_input("From Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()-timedelta(365)), placeholder="DD/MM/YYYY")
+        to_date_str = st.text_input("To Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()), placeholder="DD/MM/YYYY")
         from_date = parse_date_ddmmyyyy(from_date_str) if from_date_str else None
         to_date = parse_date_ddmmyyyy(to_date_str) if to_date_str else None
         if from_date and to_date:
@@ -1510,7 +1448,7 @@ def donations_page():
             st.warning("Invalid date range")
 
 # ============================================================
-# SAMAYA VAKUPPU (Full)
+# SAMAYA VAKUPPU
 # ============================================================
 def samaya_vakuppu_page():
     render_header()
@@ -1524,7 +1462,7 @@ def samaya_vakuppu_page():
                 father_name = st.text_input("Father's Name *")
                 bond_no = st.text_input("Bond No *")
             with col2:
-                bond_issue_date_str = st.text_input("Bond Issue Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()))
+                bond_issue_date_str = st.text_input("Bond Issue Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()), placeholder="DD/MM/YYYY")
                 issued_bank = st.text_input("Issued Bank")
             address = st.text_area("Address")
             bond_scan = st.file_uploader("Upload Bond Scan Copy", type=['pdf','jpg','png','jpeg'])
@@ -1574,7 +1512,7 @@ def samaya_vakuppu_page():
             st.info("No bonds registered")
 
 # ============================================================
-# THIRUMANA MANDAPAM (Full)
+# THIRUMANA MANDAPAM
 # ============================================================
 def thirumana_mandapam_page():
     render_header()
@@ -1588,7 +1526,7 @@ def thirumana_mandapam_page():
                 bond_no = st.text_input("Bond No *")
                 address = st.text_area("Address")
             with col2:
-                bond_issue_date_str = st.text_input("Bond Issue Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()))
+                bond_issue_date_str = st.text_input("Bond Issue Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()), placeholder="DD/MM/YYYY")
                 issued_by = st.text_input("Issued By")
             bond_scan = st.file_uploader("Upload Bond Scan Copy", type=['pdf','jpg','png','jpeg'])
             photo = st.file_uploader("Photo", type=['jpg','png','jpeg'])
@@ -1635,7 +1573,7 @@ def thirumana_mandapam_page():
             st.info("No bonds registered")
 
 # ============================================================
-# ASSET MANAGEMENT (Full)
+# ASSET MANAGEMENT
 # ============================================================
 def assets_page():
     render_header()
@@ -1650,7 +1588,7 @@ def assets_page():
                 serial = st.text_input("Serial No")
             with col2:
                 donor = st.text_input("Donor")
-                date_don_str = st.text_input("Donation/Purchase Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()))
+                date_don_str = st.text_input("Donation/Purchase Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()), placeholder="DD/MM/YYYY")
                 cost = st.number_input("Cost", min_value=0.0)
                 location = st.text_input("Location")
             desc = st.text_area("Description")
@@ -1707,13 +1645,13 @@ def assets_page():
             st.info("No assets")
 
 # ============================================================
-# REPORTS (Full)
+# REPORTS
 # ============================================================
 def reports_page():
     render_header()
     report_type = st.selectbox("Report Type", ["Income Report","Financial Summary","Devotee Report","Pooja Income","Expense Report","Donation Report"])
-    from_date_str = st.text_input("From Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()-timedelta(30)))
-    to_date_str = st.text_input("To Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()))
+    from_date_str = st.text_input("From Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()-timedelta(30)), placeholder="DD/MM/YYYY")
+    to_date_str = st.text_input("To Date (DD/MM/YYYY)", value=format_date_ddmmyyyy(date.today()), placeholder="DD/MM/YYYY")
     from_date = parse_date_ddmmyyyy(from_date_str) if from_date_str else None
     to_date = parse_date_ddmmyyyy(to_date_str) if to_date_str else None
     if not from_date or not to_date:
@@ -1776,7 +1714,7 @@ def reports_page():
             st.dataframe(df)
 
 # ============================================================
-# SETTINGS (Full)
+# SETTINGS
 # ============================================================
 def settings_page():
     render_header()
@@ -1797,7 +1735,7 @@ def settings_page():
         st.subheader("Upload Amman Image")
         current_img = get_amman_image()
         st.image(current_img, width=150)
-        uploaded_img = st.file_uploader("Choose JPG/PNG (for PDF bill)", type=['jpg','jpeg','png'])
+        uploaded_img = st.file_uploader("Choose JPG/PNG", type=['jpg','jpeg','png'])
         if uploaded_img:
             img_b64 = "data:image/jpeg;base64," + base64.b64encode(uploaded_img.getvalue()).decode()
             st.image(img_b64, width=120)
@@ -1865,7 +1803,7 @@ def settings_page():
                     st.success("Profile updated")
 
 # ============================================================
-# USER MANAGEMENT (Admin only)
+# USER MANAGEMENT
 # ============================================================
 def user_management_page():
     if st.session_state.get('role')!='admin':
