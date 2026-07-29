@@ -524,7 +524,7 @@ def render_header():
             <p style='color: #ffd700; font-style: italic;'>{TEMPLE_CONFIG["tagline"]}</p>
         </div>
         <div style='position: absolute; right: 20px; top: 50%; transform: translateY(-50%);'>
-            <img src="{amman_img}" style='width: 60px; height: 60px; border-radius: 50%; border: 3px solid #ffd700;'>
+            <img src="{amman_img}" style='width: 80px; height: 80px; border-radius: 50%; border: 3px solid #ffd700;'>
         </div>
     </div>
     """, unsafe_allow_html=True)
