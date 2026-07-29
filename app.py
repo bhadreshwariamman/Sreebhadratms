@@ -515,7 +515,7 @@ def render_header():
     st.markdown(f"""
     <div style='background: linear-gradient(135deg, #667eea, #764ba2, #f093fb, #f5576c); padding: 20px; border-radius: 15px; margin-bottom: 20px; position: relative;'>
         <div style='position: absolute; left: 20px; top: 50%; transform: translateY(-50%);'>
-            <img src="{amman_img}" style='width: 60px; height: 60px; border-radius: 50%; border: 3px solid #ffd700;'>
+            <img src="{amman_img}" style='width:200px; height: 200px; border-radius: 50%; border: 3px solid #ffd700;'>
         </div>
         <div style='text-align: center;'>
             <h1 style='color: white;'>🛕 {TEMPLE_CONFIG["name"]}</h1>
@@ -524,7 +524,7 @@ def render_header():
             <p style='color: #ffd700; font-style: italic;'>{TEMPLE_CONFIG["tagline"]}</p>
         </div>
         <div style='position: absolute; right: 20px; top: 50%; transform: translateY(-50%);'>
-            <img src="{amman_img}" style='width: 150px; height: 150px; border-radius: 50%; border: 3px solid #ffd700;'>
+            <img src="{amman_img}" style='width: 60px; height: 60px; border-radius: 50%; border: 3px solid #ffd700;'>
         </div>
     </div>
     """, unsafe_allow_html=True)
