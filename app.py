@@ -39,22 +39,15 @@ def init_supabase():
 supabase = init_supabase()
 
 # ============================================================
-# TEMPLE CONSTANTS
+# TEMPLE CONSTANTS (Dynamic - will be loaded from DB)
 # ============================================================
-TEMPLE_NAME = "Arulmigu Bhadreshwari Amman Temple"
-TEMPLE_TRUST = "Samrakshana Seva Trust 179/2004"
-TEMPLE_ADDRESS = "Kanjampuram, Kanniyakumari Dist. - 629154"
-TEMPLE_EMAIL = "bhadreshwariamman@gmail.com"
-TEMPLE_PHONE = "+91 9876543210"
-TEMPLE_TAMIL = "அம்மே நாராயணா ..தேவி நாராயணா"
-
 TEMPLE_CONFIG = {
-    "name": TEMPLE_NAME,
-    "trust": TEMPLE_TRUST,
-    "address": TEMPLE_ADDRESS,
-    "phone": TEMPLE_PHONE,
-    "email": TEMPLE_EMAIL,
-    "tagline": TEMPLE_TAMIL,
+    "name": "Arulmigu Bhadreshwari Amman Temple",
+    "trust": "Samrakshana Seva Trust 179/2004",
+    "address": "Kanjampuram, Kanniyakumari Dist. - 629154",
+    "phone": "+91 9876543210",
+    "email": "bhadreshwariamman@gmail.com",
+    "tagline": "அம்மே நாராயணா ..தேவி நாராயணா",
     "currency": "₹"
 }
 
@@ -79,6 +72,27 @@ RELATION_TYPES = [
 
 MIN_DATE = date(1950, 1, 1)
 MAX_DATE = date(2050, 12, 31)
+
+# ============================================================
+# LOAD TEMPLE CONFIG FROM DATABASE
+# ============================================================
+def load_temple_config():
+    """Load temple configuration from database into TEMPLE_CONFIG"""
+    if not supabase:
+        return
+    try:
+        # Load each setting from temple_settings table
+        for key in TEMPLE_CONFIG.keys():
+            if key == "currency":
+                continue
+            res = supabase.table('temple_settings').select('value').eq('key', f'temple_{key}').execute()
+            if res.data and res.data[0].get('value'):
+                TEMPLE_CONFIG[key] = res.data[0]['value']
+    except:
+        pass
+
+# Load config on startup
+load_temple_config()
 
 # ============================================================
 # DATE HANDLING (DD/MM/YYYY)
@@ -300,13 +314,13 @@ def make_whatsapp_link(phone, message):
 
 def build_bill_whatsapp_message(bill_no, bill_date, name, pooja, amount, manual_bill="", book_no=""):
     return (
-        f"🛕 *{TEMPLE_NAME}*\n*{TEMPLE_TRUST}*\n📍 {TEMPLE_ADDRESS}\n🙏 {TEMPLE_TAMIL}\n\n"
+        f"🛕 *{TEMPLE_CONFIG['name']}*\n*{TEMPLE_CONFIG['trust']}*\n📍 {TEMPLE_CONFIG['address']}\n🙏 {TEMPLE_CONFIG['tagline']}\n\n"
         f"📋 *BILL / RECEIPT*\n━━━━━━━━━━━━━━━━━\n📄 Bill No: {bill_no}\n"
         f"{'📝 Manual: '+str(manual_bill)+'\n' if manual_bill else ''}"
         f"{'📖 Book: '+str(book_no)+'\n' if book_no else ''}"
         f"📅 Date: {bill_date}\n━━━━━━━━━━━━━━━━━\n👤 Name: {name}\n🙏 Pooja: {pooja}\n"
         f"💰 *Amount: Rs. {float(amount):,.2f}*\n━━━━━━━━━━━━━━━━━\n\n"
-        f"🙏 Thank you! May Goddess Bhadreshwari bless you!\n✉ {TEMPLE_EMAIL}\n🪔 {TEMPLE_TAMIL} 🪔"
+        f"🙏 Thank you! May Goddess Bhadreshwari bless you!\n✉ {TEMPLE_CONFIG['email']}\n🪔 {TEMPLE_CONFIG['tagline']} 🪔"
     )
 
 # ============================================================
@@ -362,11 +376,11 @@ def generate_bill_pdf(bill_no, manual_bill, bill_book, bill_date, name, address,
     
     # Temple header (smaller fonts for A5)
     pdf.set_font('Helvetica', 'B', 12)
-    pdf.cell(0, 5, sanitize_text(TEMPLE_NAME), 0, 1, 'C')
+    pdf.cell(0, 5, sanitize_text(TEMPLE_CONFIG['name']), 0, 1, 'C')
     pdf.set_font('Helvetica', '', 8)
-    pdf.cell(0, 4, sanitize_text(TEMPLE_TRUST), 0, 1, 'C')
-    pdf.cell(0, 4, sanitize_text(TEMPLE_ADDRESS), 0, 1, 'C')
-    pdf.cell(0, 4, f"Email: {sanitize_text(TEMPLE_EMAIL)}", 0, 1, 'C')
+    pdf.cell(0, 4, sanitize_text(TEMPLE_CONFIG['trust']), 0, 1, 'C')
+    pdf.cell(0, 4, sanitize_text(TEMPLE_CONFIG['address']), 0, 1, 'C')
+    pdf.cell(0, 4, f"Email: {sanitize_text(TEMPLE_CONFIG['email'])}", 0, 1, 'C')
     pdf.ln(3)
     
     # Bill title
@@ -415,13 +429,13 @@ def generate_bill_pdf(bill_no, manual_bill, bill_book, bill_date, name, address,
     # Thank you message
     pdf.set_font('Helvetica', 'I', 7)
     pdf.cell(0, 4, "Thank you for your contribution!", 0, 1, 'C')
-    pdf.cell(0, 4, sanitize_text(TEMPLE_TAMIL), 0, 1, 'C')
+    pdf.cell(0, 4, sanitize_text(TEMPLE_CONFIG['tagline']), 0, 1, 'C')
     
     # Footer with address
     pdf.ln(2)
     pdf.set_font('Helvetica', '', 6)
-    pdf.cell(0, 3, sanitize_text(TEMPLE_ADDRESS), 0, 1, 'C')
-    pdf.cell(0, 3, f"Email: {sanitize_text(TEMPLE_EMAIL)}", 0, 1, 'C')
+    pdf.cell(0, 3, sanitize_text(TEMPLE_CONFIG['address']), 0, 1, 'C')
+    pdf.cell(0, 3, f"Email: {sanitize_text(TEMPLE_CONFIG['email'])}", 0, 1, 'C')
     
     # Clean up temp file
     if amman_img_path and os.path.exists(amman_img_path):
@@ -433,7 +447,7 @@ def generate_bill_pdf(bill_no, manual_bill, bill_book, bill_date, name, address,
     return pdf.output(dest='S').encode('latin1')
 
 # ============================================================
-# LOGIN PAGE
+# LOGIN PAGE (Dynamic)
 # ============================================================
 def login_page():
     if not supabase:
@@ -456,16 +470,18 @@ def login_page():
     .login-divider { height: 2px; background: linear-gradient(90deg, transparent, #ffd700, #ff6b35, #ffd700, transparent); margin: 20px 0; }
     </style>
     """, unsafe_allow_html=True)
+    
     col1, col2, col3 = st.columns([1,2,1])
     with col2:
         st.markdown('<div class="login-container">', unsafe_allow_html=True)
         st.markdown(f'<div><img src="{amman_img}" class="amman-img"></div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="temple-name">🛕 {TEMPLE_NAME}</div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="temple-trust">{TEMPLE_TRUST}</div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="temple-address">📍 {TEMPLE_ADDRESS}</div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="temple-email">✉ {TEMPLE_EMAIL} | 📞 {TEMPLE_PHONE}</div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="tamil-text">🙏 {TEMPLE_TAMIL} 🙏</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="temple-name">🛕 {TEMPLE_CONFIG["name"]}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="temple-trust">{TEMPLE_CONFIG["trust"]}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="temple-address">📍 {TEMPLE_CONFIG["address"]}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="temple-email">✉ {TEMPLE_CONFIG["email"]} | 📞 {TEMPLE_CONFIG["phone"]}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="tamil-text">🙏 {TEMPLE_CONFIG["tagline"]} 🙏</div>', unsafe_allow_html=True)
         st.markdown('<div class="login-divider"></div>', unsafe_allow_html=True)
+        
         with st.form("login_form"):
             username = st.text_input("👤 Username")
             password = st.text_input("🔑 Password", type="password")
@@ -486,8 +502,9 @@ def login_page():
                             st.error("❌ Invalid credentials")
                     except Exception as e:
                         st.error(f"Error: {e}")
+        
         st.markdown('<div class="login-divider"></div>', unsafe_allow_html=True)
-        st.markdown(f'<div style="color:#aaa;">🔑 Default: admin / admin123<br>🪔 {TEMPLE_TAMIL} 🪔</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="color:#aaa;">🔑 Default: admin / admin123<br>🪔 {TEMPLE_CONFIG["tagline"]} 🪔</div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
 # ============================================================
@@ -501,10 +518,10 @@ def render_header():
             <img src="{amman_img}" style='width: 60px; height: 60px; border-radius: 50%; border: 3px solid #ffd700;'>
         </div>
         <div style='text-align: center;'>
-            <h1 style='color: white;'>🛕 {TEMPLE_NAME}</h1>
-            <p style='color: #fff8e7;'>{TEMPLE_TRUST}</p>
-            <p style='color: #fff0d0;'>📍 {TEMPLE_ADDRESS} | 📞 {TEMPLE_PHONE} | ✉ {TEMPLE_EMAIL}</p>
-            <p style='color: #ffd700; font-style: italic;'>{TEMPLE_TAMIL}</p>
+            <h1 style='color: white;'>🛕 {TEMPLE_CONFIG["name"]}</h1>
+            <p style='color: #fff8e7;'>{TEMPLE_CONFIG["trust"]}</p>
+            <p style='color: #fff0d0;'>📍 {TEMPLE_CONFIG["address"]} | 📞 {TEMPLE_CONFIG["phone"]} | ✉ {TEMPLE_CONFIG["email"]}</p>
+            <p style='color: #ffd700; font-style: italic;'>{TEMPLE_CONFIG["tagline"]}</p>
         </div>
         <div style='position: absolute; right: 20px; top: 50%; transform: translateY(-50%);'>
             <img src="{amman_img}" style='width: 60px; height: 60px; border-radius: 50%; border: 3px solid #ffd700;'>
@@ -997,8 +1014,8 @@ def billing_page():
             bill = st.session_state.last_bill
             st.markdown(f"""
             <div style='border:2px solid #667eea; padding:20px; border-radius:10px; background:white; margin:10px 0;'>
-                <h3 style='text-align:center'>{TEMPLE_NAME}</h3>
-                <p style='text-align:center'>{TEMPLE_TRUST}<br>{TEMPLE_ADDRESS}<br>✉ {TEMPLE_EMAIL}</p>
+                <h3 style='text-align:center'>{TEMPLE_CONFIG['name']}</h3>
+                <p style='text-align:center'>{TEMPLE_CONFIG['trust']}<br>{TEMPLE_CONFIG['address']}<br>✉ {TEMPLE_CONFIG['email']}</p>
                 <hr><h4 style='text-align:center'>BILL / RECEIPT</h4><hr>
                 <p><strong>Bill No:</strong> {bill['bill_no']}<br>
                 <strong>Date:</strong> {bill['bill_date_display']}<br>
@@ -1007,7 +1024,7 @@ def billing_page():
                 <strong>Mobile:</strong> {bill['dev_mobile']}<br>
                 <strong>Pooja:</strong> {bill['pooja']}<br>
                 <strong>Amount:</strong> {TEMPLE_CONFIG['currency']}{bill['amount']:,.2f}</p>
-                <hr><p style='text-align:center'>🙏 Thank you! {TEMPLE_TAMIL} 🙏</p>
+                <hr><p style='text-align:center'>🙏 Thank you! {TEMPLE_CONFIG['tagline']} 🙏</p>
             </div>
             """, unsafe_allow_html=True)
             
@@ -1714,24 +1731,89 @@ def reports_page():
             st.dataframe(df)
 
 # ============================================================
-# SETTINGS
+# SETTINGS (with Change Password and Temple Info)
 # ============================================================
 def settings_page():
     render_header()
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏛️ Temple Info","🖼️ Amman Image","📢 News Ticker","💸 Expense Types","👤 Profile"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏛️ Temple Info", "🔑 Change Password", "🖼️ Amman Image", "📢 News Ticker", "💸 Expense Types"])
+    
+    # ==================== TAB 1: TEMPLE INFORMATION ====================
     with tab1:
-        with st.form("temple_info"):
-            name = st.text_input("Temple Name", TEMPLE_CONFIG['name'])
-            trust = st.text_input("Trust", TEMPLE_CONFIG['trust'])
-            addr = st.text_area("Address", TEMPLE_CONFIG['address'])
-            phone = st.text_input("Phone", TEMPLE_CONFIG['phone'])
-            email = st.text_input("Email", TEMPLE_CONFIG['email'])
-            tagline = st.text_input("Tagline", TEMPLE_CONFIG['tagline'])
-            if st.form_submit_button("Save"):
-                TEMPLE_CONFIG.update({'name':name,'trust':trust,'address':addr,'phone':phone,'email':email,'tagline':tagline})
-                st.success("Saved")
+        st.subheader("Temple Contact Information")
+        st.info("These details appear on the login page, bills, and WhatsApp messages.")
+        
+        with st.form("temple_info_form"):
+            col1, col2 = st.columns(2)
+            with col1:
+                temple_name = st.text_input("Temple Name", value=TEMPLE_CONFIG['name'])
+                temple_trust = st.text_input("Trust Name", value=TEMPLE_CONFIG['trust'])
+                temple_phone = st.text_input("Phone Number", value=TEMPLE_CONFIG['phone'])
+            with col2:
+                temple_email = st.text_input("Email", value=TEMPLE_CONFIG['email'])
+                temple_address = st.text_area("Address", value=TEMPLE_CONFIG['address'], height=80)
+                temple_tagline = st.text_input("Tagline", value=TEMPLE_CONFIG['tagline'])
+            
+            if st.form_submit_button("💾 Save Temple Information", use_container_width=True):
+                # Update TEMPLE_CONFIG
+                TEMPLE_CONFIG['name'] = temple_name
+                TEMPLE_CONFIG['trust'] = temple_trust
+                TEMPLE_CONFIG['phone'] = temple_phone
+                TEMPLE_CONFIG['email'] = temple_email
+                TEMPLE_CONFIG['address'] = temple_address
+                TEMPLE_CONFIG['tagline'] = temple_tagline
+                
+                # Save to database
+                set_temple_setting('temple_name', temple_name)
+                set_temple_setting('temple_trust', temple_trust)
+                set_temple_setting('temple_phone', temple_phone)
+                set_temple_setting('temple_email', temple_email)
+                set_temple_setting('temple_address', temple_address)
+                set_temple_setting('temple_tagline', temple_tagline)
+                
+                st.success("✅ Temple information updated successfully!")
+                st.balloons()
+                time.sleep(1)
                 st.rerun()
+    
+    # ==================== TAB 2: CHANGE ADMIN PASSWORD ====================
     with tab2:
+        st.subheader("Change Admin Password")
+        st.warning("⚠️ You must enter your current password to set a new one.")
+        
+        if st.session_state.get('username'):
+            user_res = supabase.table('users').select('*').eq('username', st.session_state.username).execute()
+            if user_res.data:
+                current_user = user_res.data[0]
+                
+                with st.form("change_password_form"):
+                    current_pwd = st.text_input("Current Password", type="password")
+                    new_pwd = st.text_input("New Password", type="password")
+                    confirm_pwd = st.text_input("Confirm New Password", type="password")
+                    
+                    if st.form_submit_button("🔑 Change Password", use_container_width=True):
+                        if not current_pwd or not new_pwd or not confirm_pwd:
+                            st.error("Please fill all fields")
+                        elif not verify_password(current_pwd, current_user['password_hash']):
+                            st.error("❌ Current password is incorrect")
+                        elif new_pwd != confirm_pwd:
+                            st.error("❌ New passwords do not match")
+                        elif len(new_pwd) < 6:
+                            st.error("❌ Password must be at least 6 characters")
+                        else:
+                            new_hash = hash_password(new_pwd)
+                            supabase.table('users').update({'password_hash': new_hash}).eq('id', current_user['id']).execute()
+                            st.success("✅ Password changed successfully!")
+                            st.info("Please use your new password next time you login.")
+                            st.balloons()
+                            time.sleep(1)
+                            st.rerun()
+            else:
+                st.error("User not found")
+        else:
+            st.warning("Please login to change password")
+    
+    # ==================== TAB 3: AMMAN IMAGE ====================
+    with tab3:
         st.subheader("Upload Amman Image")
         current_img = get_amman_image()
         st.image(current_img, width=150)
@@ -1746,7 +1828,9 @@ def settings_page():
         if st.button("Reset to Default"):
             set_amman_image("")
             st.rerun()
-    with tab3:
+    
+    # ==================== TAB 4: NEWS TICKER ====================
+    with tab4:
         with st.form("add_news"):
             msg = st.text_input("News Message")
             prio = st.slider("Priority",0,10,0)
@@ -1765,7 +1849,9 @@ def settings_page():
                 if c3.button("🗑️", key=f"del_news_{n['id']}"):
                     supabase.table('news_ticker').delete().eq('id',n['id']).execute()
                     st.rerun()
-    with tab4:
+    
+    # ==================== TAB 5: EXPENSE TYPES ====================
+    with tab5:
         with st.form("add_exp_type"):
             exp_name = st.text_input("Expense Type Name")
             cat = st.selectbox("Category", ["Utilities","Maintenance","Daily Operations","Staff","Events","Other"])
@@ -1781,26 +1867,6 @@ def settings_page():
                 if c2.button("Delete", key=f"del_exp_{e['id']}"):
                     supabase.table('expense_types').delete().eq('id',e['id']).execute()
                     st.rerun()
-    with tab5:
-        user = supabase.table('users').select('*').eq('username',st.session_state.username).execute()
-        if user.data:
-            u = user.data[0]
-            with st.form("profile"):
-                full = st.text_input("Full Name", u.get('full_name',''))
-                em = st.text_input("Email", u.get('email',''))
-                old = st.text_input("Current Password", type="password")
-                new = st.text_input("New Password", type="password")
-                confirm = st.text_input("Confirm", type="password")
-                if st.form_submit_button("Update"):
-                    updates = {}
-                    if full: updates['full_name']=full
-                    if em: updates['email']=em
-                    if updates:
-                        supabase.table('users').update(updates).eq('id',u['id']).execute()
-                    if old and new and new==confirm and verify_password(old, u['password_hash']):
-                        supabase.table('users').update({'password_hash':hash_password(new)}).eq('id',u['id']).execute()
-                        st.success("Password changed")
-                    st.success("Profile updated")
 
 # ============================================================
 # USER MANAGEMENT
