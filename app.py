@@ -523,7 +523,7 @@ def render_header():
             <p style='color: #fff0d0;'>📍 {TEMPLE_CONFIG["address"]} | 📞 {TEMPLE_CONFIG["phone"]} | ✉ {TEMPLE_CONFIG["email"]}</p>
             <p style='color: #ffd700; font-style: italic;'>{TEMPLE_CONFIG["tagline"]}</p>
         </div>
-        <div style='position: absolute; right: 20px; top: 50%; transform: translateY(-50%);'>
+        
            
         </div>
     </div>
